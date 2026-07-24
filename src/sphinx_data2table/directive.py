@@ -48,12 +48,10 @@ class DataTableDirective(Directive):
         elif self.content:
             data_text, load_error = self._load_data_text_from_inline(), None
         else:
-            return [
-                self.state_machine.reporter.error(
-                    "data-table: Neither content nor ':file:' option provided.",
-                    line=self.lineno,
-                )
-            ]
+            data_text, load_error = "", self.state_machine.reporter.error(
+                "data-table: Neither content nor ':file:' option provided.",
+                line=self.lineno,
+            )
 
         if load_error:
             return [load_error]
