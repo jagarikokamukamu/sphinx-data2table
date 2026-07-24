@@ -297,10 +297,19 @@ class DataTableDirective(Directive):
             entry_node += child
 
     def _replace_cell_newlines(self, node: nodes.Node) -> None:
-        """Recursively replaces text node newlines with format-safe break nodes.
+        """Recursively replaces in-cell line breaks with format-specific raw break nodes.
+
+        WORKAROUND:
+            Sphinx's default LaTeXTranslator turns in-cell line break nodes into '\\',
+            which LaTeX interprets as a table row separator, moving the remaining cell
+            text to the first column of the next row. This method works around that
+            Sphinx LaTeX writer limitation by replacing in-cell line breaks with
+            format-specific raw nodes:
+                - format="latex": r"\\newline " (prevents table row jump)
+                - format="html": "<br/>" (renders line breaks in HTML tables)
 
         Args:
-            node: The docutils node to process recursively.
+            node: The docutils AST node to process recursively.
         """
         new_children: list[nodes.Node] = []
         modified = False
