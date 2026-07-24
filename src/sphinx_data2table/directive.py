@@ -18,8 +18,9 @@ from docutils.statemachine import StringList
 class DataTableDirective(Directive):
     """A Sphinx directive that transforms structured data into HTML/LaTeX tables.
 
-    Supports TOML, YAML, and JSON data provided either inline or via external files.
-    Cell text is parsed as Markdown/reST AST to preserve formatting.
+    Supports TOML, YAML, and JSON data provided either inline within the document
+    or via an external data file path. Each table cell's text is parsed as Markdown/reST
+    AST to preserve inline and block element formatting.
     """
 
     has_content = True
@@ -33,7 +34,12 @@ class DataTableDirective(Directive):
     }
 
     def run(self) -> list[nodes.Node]:
-        """Orchestrates the table rendering process and returns docutils AST nodes."""
+        """Orchestrates the table rendering pipeline and returns docutils AST nodes.
+
+        Returns:
+            A list containing either a constructed docutils.nodes.table instance or
+            an error/warning message node if processing fails.
+        """
         # 1. Load raw text content from external file or inline block
         raw_text, load_error = self._load_source_text()
         if load_error:
@@ -56,7 +62,14 @@ class DataTableDirective(Directive):
     # =========================================================================
 
     def _load_source_text(self) -> tuple[str, nodes.Node | None]:
-        """Loads raw data text from the specified file option or inline content."""
+        """Loads raw data text from the specified file option or inline content.
+
+        Returns:
+            A tuple containing:
+                - The raw text content string.
+                - An error node if neither content nor valid file path is provided,
+                  otherwise None.
+        """
         file_path = self.options.get("file")
         if file_path:
             return self._read_external_file(file_path)
@@ -72,7 +85,16 @@ class DataTableDirective(Directive):
         return "", error_node
 
     def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
-        """Reads text from an external file path, tracking Sphinx dependency."""
+        """Reads text from an external file path, tracking Sphinx dependency.
+
+        Args:
+            file_path: Relative or absolute path to the target data file.
+
+        Returns:
+            A tuple containing:
+                - The file contents as a string.
+                - An error node if the file cannot be read, otherwise None.
+        """
         env = getattr(self.state.document.settings, "env", None)
         if env:
             rel_path, abs_path = env.relfn2path(file_path)
@@ -97,7 +119,17 @@ class DataTableDirective(Directive):
     def _parse_to_row_dictionaries(
         self, raw_text: str
     ) -> tuple[list[dict[str, Any]], nodes.Node | None]:
-        """Detects format, parses raw text, and normalizes into row dictionaries."""
+        """Detects format, parses raw text, and normalizes into row dictionaries.
+
+        Args:
+            raw_text: Raw string content of TOML, YAML, or JSON data.
+
+        Returns:
+            A tuple containing:
+                - A list of dictionary objects representing table rows.
+                - An error or warning message node if parsing fails or data is empty,
+                  otherwise None.
+        """
         data_format = self._detect_data_format(raw_text)
         parsed_data, parse_err_msg = self._parse_by_format(raw_text, data_format)
 
@@ -118,7 +150,14 @@ class DataTableDirective(Directive):
         return rows, None
 
     def _detect_data_format(self, raw_text: str) -> str:
-        """Detects data format using option, file extension, or content heuristic."""
+        """Detects data format using option, file extension, or content heuristic.
+
+        Args:
+            raw_text: The raw string content of the data.
+
+        Returns:
+            Format string ('json', 'toml', or 'yaml').
+        """
         specified_format = self.options.get("format", "auto").lower()
         if specified_format != "auto":
             return specified_format
@@ -136,7 +175,14 @@ class DataTableDirective(Directive):
         return self._heuristic_format_detection(raw_text)
 
     def _heuristic_format_detection(self, text: str) -> str:
-        """Tries parsing as JSON, TOML, and YAML to infer format."""
+        """Tries parsing as JSON, TOML, and YAML to infer data format.
+
+        Args:
+            text: Raw data text string.
+
+        Returns:
+            Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml'.
+        """
         with contextlib.suppress(Exception):
             if isinstance(json.loads(text), (list, dict)):
                 return "json"
@@ -154,7 +200,17 @@ class DataTableDirective(Directive):
     def _parse_by_format(
         self, text: str, data_format: str
     ) -> tuple[Any, str | None]:
-        """Parses raw text using target format parser (json, toml, yaml)."""
+        """Parses raw text using target format parser (json, toml, yaml).
+
+        Args:
+            text: Raw data text string.
+            data_format: Format identifier ('json', 'toml', or 'yaml').
+
+        Returns:
+            A tuple containing:
+                - The parsed Python object (list or dict).
+                - Error message string if parsing fails, otherwise None.
+        """
         try:
             if data_format == "json":
                 return json.loads(text), None
@@ -170,7 +226,14 @@ class DataTableDirective(Directive):
             return None, f"Failed to parse {data_format.upper()} data: {err}"
 
     def _normalize_parsed_data(self, data: Any) -> list[dict[str, Any]]:
-        """Normalizes parsed object into a flat list of row dictionaries."""
+        """Normalizes parsed object into a flat list of row dictionaries.
+
+        Args:
+            data: Parsed Python object resulting from JSON, TOML, or YAML parser.
+
+        Returns:
+            A list of dictionary objects representing table rows.
+        """
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
 
@@ -189,7 +252,16 @@ class DataTableDirective(Directive):
     def _construct_table_node(
         self, rows: list[dict[str, Any]]
     ) -> tuple[nodes.table, nodes.Node | None]:
-        """Constructs docutils table node including headers and row cells."""
+        """Constructs docutils table node including headers and row cells.
+
+        Args:
+            rows: List of row dictionary objects.
+
+        Returns:
+            A tuple containing:
+                - Constructed docutils.nodes.table node.
+                - An error node if column headers cannot be determined, otherwise None.
+        """
         headers = self._resolve_column_headers(rows)
         if not headers:
             error_node = self.state_machine.reporter.error(
@@ -213,7 +285,14 @@ class DataTableDirective(Directive):
         return table_node, None
 
     def _resolve_column_headers(self, rows: list[dict[str, Any]]) -> list[str]:
-        """Resolves column headers from explicit directive option or row dict keys."""
+        """Resolves column headers from explicit directive option or row dict keys.
+
+        Args:
+            rows: List of row dictionary objects.
+
+        Returns:
+            A list of column header strings.
+        """
         headers_option = self.options.get("headers")
         if headers_option:
             return [h.strip() for h in headers_option.split(",") if h.strip()]
@@ -226,7 +305,14 @@ class DataTableDirective(Directive):
         return headers
 
     def _build_header_row_node(self, headers: list[str]) -> nodes.thead:
-        """Builds docutils table header row node (thead)."""
+        """Builds docutils table header row node (thead).
+
+        Args:
+            headers: List of column header names.
+
+        Returns:
+            A docutils.nodes.thead element.
+        """
         thead = nodes.thead()
         header_row = nodes.row()
         thead += header_row
@@ -241,7 +327,15 @@ class DataTableDirective(Directive):
     def _build_body_row_nodes(
         self, headers: list[str], rows: list[dict[str, Any]]
     ) -> nodes.tbody:
-        """Builds docutils table body rows node (tbody)."""
+        """Builds docutils table body rows node (tbody).
+
+        Args:
+            headers: List of column header names.
+            rows: List of row dictionary objects.
+
+        Returns:
+            A docutils.nodes.tbody element.
+        """
         tbody = nodes.tbody()
 
         for row_dict in rows:
@@ -264,7 +358,12 @@ class DataTableDirective(Directive):
     def _render_markdown_cell_content(
         self, cell_text: str, entry_node: nodes.entry
     ) -> None:
-        """Parses Markdown cell text into AST nodes and appends to entry_node."""
+        """Parses Markdown cell text into AST nodes and appends to entry_node.
+
+        Args:
+            cell_text: Raw string content of a single table cell.
+            entry_node: Target docutils.nodes.entry element to receive parsed nodes.
+        """
         dedented_text = textwrap.dedent(cell_text).strip()
         if not dedented_text:
             return
@@ -282,7 +381,11 @@ class DataTableDirective(Directive):
             entry_node += child
 
     def _is_latex_builder_active(self) -> bool:
-        """Checks if current Sphinx build target is LaTeX."""
+        """Checks if current Sphinx build target is LaTeX.
+
+        Returns:
+            True if the current builder is 'latex', otherwise False.
+        """
         env = getattr(self.state.document.settings, "env", None)
         if env and hasattr(env, "app") and hasattr(env.app, "builder"):
             return getattr(env.app.builder, "name", "") == "latex"
@@ -291,7 +394,12 @@ class DataTableDirective(Directive):
     def _transform_line_breaks(
         self, node: nodes.Node, is_latex: bool = False
     ) -> None:
-        """Transforms in-cell line breaks for target builder (LaTeX vs HTML)."""
+        """Transforms in-cell line breaks for target builder (LaTeX vs HTML).
+
+        Args:
+            node: The docutils AST node to process recursively.
+            is_latex: True if the current build target is LaTeX.
+        """
         new_children: list[nodes.Node] = []
         modified = False
 
