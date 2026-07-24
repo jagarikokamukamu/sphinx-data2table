@@ -41,14 +41,29 @@ class DataTableDirective(Directive):
             A single-element list containing the built docutils.nodes.table node,
             or an error/warning message node if any step fails.
         """
-        data_text, load_error = self._load_data_text()
+        # 1. Load data text from external file or inline content block
+        file_path = self.options.get("file")
+        if file_path:
+            data_text, load_error = self._load_data_text_from_file(file_path)
+        elif self.content:
+            data_text, load_error = self._load_data_text_from_inline(), None
+        else:
+            return [
+                self.state_machine.reporter.error(
+                    "data-table: Neither content nor ':file:' option provided.",
+                    line=self.lineno,
+                )
+            ]
+
         if load_error:
             return [load_error]
 
+        # 2. Parse data text into structured row dictionaries
         rows, parse_error = self._parse_to_row_dictionaries(data_text)
         if parse_error:
             return [parse_error]
 
+        # 3. Construct and return the docutils table AST node
         table_node, build_error = self._construct_table_node(rows)
         if build_error:
             return [build_error]
@@ -58,31 +73,6 @@ class DataTableDirective(Directive):
     # =========================================================================
     # Step 1: Data Text Loading
     # =========================================================================
-
-    def _load_data_text(self) -> tuple[str, nodes.Node | None]:
-        """Loads data text by delegating to file loader or inline content loader.
-
-        Prioritizes the ':file:' option if specified. If ':file:' is omitted, it falls
-        back to reading the directive's inline content body.
-
-        Returns:
-            A tuple containing:
-                - The data text string retrieved from the file or inline block.
-                - An error message node if neither ':file:' nor inline content exists,
-                  or if reading the target file fails, otherwise None.
-        """
-        file_path = self.options.get("file")
-        if file_path:
-            return self._load_data_text_from_file(file_path)
-
-        if self.content:
-            return self._load_data_text_from_inline(), None
-
-        error_node = self.state_machine.reporter.error(
-            "data-table: Neither content nor ':file:' option provided.",
-            line=self.lineno,
-        )
-        return "", error_node
 
     def _load_data_text_from_file(
         self, file_path: str
