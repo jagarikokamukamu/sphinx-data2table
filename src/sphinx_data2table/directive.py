@@ -41,7 +41,7 @@ class DataTableDirective(Directive):
             A single-element list containing the built docutils.nodes.table node,
             or an error/warning message node if any step fails.
         """
-        data_text, load_error = self._load_data_text_from_file_or_inline()
+        data_text, load_error = self._load_data_text()
         if load_error:
             return [load_error]
 
@@ -59,11 +59,11 @@ class DataTableDirective(Directive):
     # Step 1: Data Text Loading
     # =========================================================================
 
-    def _load_data_text_from_file_or_inline(self) -> tuple[str, nodes.Node | None]:
-        """Loads data text from either the ':file:' option or inline content block.
+    def _load_data_text(self) -> tuple[str, nodes.Node | None]:
+        """Loads data text by delegating to file loader or inline content loader.
 
-        Prioritizes the ':file:' option if specified. If ':file:' is omitted, it reads
-        the directive's inline content body.
+        Prioritizes the ':file:' option if specified. If ':file:' is omitted, it falls
+        back to reading the directive's inline content body.
 
         Returns:
             A tuple containing:
@@ -73,11 +73,10 @@ class DataTableDirective(Directive):
         """
         file_path = self.options.get("file")
         if file_path:
-            return self._read_external_file(file_path)
+            return self._load_data_text_from_file(file_path)
 
         if self.content:
-            inline_text = textwrap.dedent("\n".join(self.content)).strip()
-            return inline_text, None
+            return self._load_data_text_from_inline(), None
 
         error_node = self.state_machine.reporter.error(
             "data-table: Neither content nor ':file:' option provided.",
@@ -85,18 +84,20 @@ class DataTableDirective(Directive):
         )
         return "", error_node
 
-    def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
-        """Reads data text from external file, registering Sphinx build dependency.
+    def _load_data_text_from_file(
+        self, file_path: str
+    ) -> tuple[str, nodes.Node | None]:
+        """Reads raw data text from an external file path.
 
-        Resolves relative file paths against the Sphinx document source directory and
-        notifies the Sphinx environment so that doc rebuilds trigger when file changes.
+        Resolves relative paths against the Sphinx document directory and registers
+        a dependency with the Sphinx environment to trigger rebuilds on change.
 
         Args:
-            file_path: Relative path (from Sphinx doc directory) or absolute path.
+            file_path: Relative or absolute path to the target data file.
 
         Returns:
             A tuple containing:
-                - The data text contents of the external file.
+                - The file text contents.
                 - An error node if the file cannot be read, otherwise None.
         """
         env = getattr(self.state.document.settings, "env", None)
@@ -115,6 +116,14 @@ class DataTableDirective(Directive):
                 line=self.lineno,
             )
             return "", error_node
+
+    def _load_data_text_from_inline(self) -> str:
+        """Extracts and dedents raw data text from the directive's inline content block.
+
+        Returns:
+            Dedented inline content block string.
+        """
+        return textwrap.dedent("\n".join(self.content)).strip()
 
     # =========================================================================
     # Step 2: Data Parsing & Normalization
