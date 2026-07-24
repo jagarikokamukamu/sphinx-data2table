@@ -261,9 +261,7 @@ class DataTableDirective(Directive):
 
         return table
 
-    def _parse_cell_markdown(
-        self, content_str: str, entry_node: nodes.entry
-    ) -> None:
+    def _parse_cell_markdown(self, content_str: str, entry_node: nodes.entry) -> None:
         """Parses cell string as Markdown/reST AST into docutils nodes in entry_node.
 
         Args:

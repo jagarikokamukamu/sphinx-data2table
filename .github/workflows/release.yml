@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Verify version matches git tag
+        run: |
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          UV_VERSION=$(uv version --short)
+          echo "Git Tag Version: $TAG_VERSION"
+          echo "pyproject.toml Version: $UV_VERSION"
+          if [ "$TAG_VERSION" != "$UV_VERSION" ]; then
+            echo "Error: Version mismatch! Tag is '$TAG_VERSION' but pyproject.toml is '$UV_VERSION'"
+            echo "Hint: To resolve this, run 'uv version $TAG_VERSION' in your workspace, or recreate the Git tag as 'v$UV_VERSION'"
+            exit 1
+          fi
+
+      - name: Build package
+        run: uv build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Publish to PyPI
+      #   run: uv publish

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  ci:
+    name: Lint, Type Check, and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run Ruff formatter check
+        run: uv run ruff format --check
+
+      - name: Run Ruff linter check
+        run: uv run ruff check
+
+      - name: Run Pyright type check
+        run: uv run pyright
+
+      - name: Run Tests
+        run: uv run pytest
