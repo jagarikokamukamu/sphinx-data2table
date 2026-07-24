@@ -37,26 +37,18 @@ class DataTableDirective(Directive):
     def run(self) -> list[nodes.Node]:
         """Orchestrates the table rendering pipeline and returns docutils AST nodes.
 
-        Executes three steps:
-        1. Loads data text from external file or inline content block.
-        2. Parses data text into a list of row dictionaries.
-        3. Constructs and builds the docutils table AST node.
-
         Returns:
             A single-element list containing the built docutils.nodes.table node,
             or an error/warning message node if any step fails.
         """
-        # 1. Load data text content from external file or inline block
-        data_text, load_error = self._load_data_text()
+        data_text, load_error = self._load_data_text_from_file_or_inline()
         if load_error:
             return [load_error]
 
-        # 2. Parse data text into structured row dictionaries
         rows, parse_error = self._parse_to_row_dictionaries(data_text)
         if parse_error:
             return [parse_error]
 
-        # 3. Construct and return the docutils table AST node
         table_node, build_error = self._construct_table_node(rows)
         if build_error:
             return [build_error]
@@ -67,7 +59,7 @@ class DataTableDirective(Directive):
     # Step 1: Data Text Loading
     # =========================================================================
 
-    def _load_data_text(self) -> tuple[str, nodes.Node | None]:
+    def _load_data_text_from_file_or_inline(self) -> tuple[str, nodes.Node | None]:
         """Loads data text from either the ':file:' option or inline content block.
 
         Prioritizes the ':file:' option if specified. If ':file:' is omitted, it reads
