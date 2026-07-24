@@ -18,6 +18,7 @@ where = ["src"]
 [dependency-groups]
 dev = [
     "myst-parser>=5.1.0",
+    "pyright>=1.1.411",
     "pytest-cov>=7.1.0",
     "pytest>=9.1.1",
     "ruff>=0.16.0",
@@ -60,3 +61,7 @@ indent-style = "space"
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
