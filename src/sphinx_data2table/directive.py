@@ -47,7 +47,7 @@ class DataTableDirective(Directive):
             or an error/warning message node if any step fails.
         """
         # 1. Load raw text content from external file or inline block
-        raw_text, load_error = self._load_source_text()
+        raw_text, load_error = self._load_raw_text()
         if load_error:
             return [load_error]
 
@@ -64,18 +64,18 @@ class DataTableDirective(Directive):
         return [table_node]
 
     # =========================================================================
-    # Step 1: Source Text Loading
+    # Step 1: Raw Text Loading
     # =========================================================================
 
-    def _load_source_text(self) -> tuple[str, nodes.Node | None]:
-        """Loads raw data text from either the ':file:' option or inline content block.
+    def _load_raw_text(self) -> tuple[str, nodes.Node | None]:
+        """Loads raw text from either the ':file:' option or inline content block.
 
         Prioritizes the ':file:' option if specified. If ':file:' is omitted, it reads
         the directive's inline content body.
 
         Returns:
             A tuple containing:
-                - The raw data text string retrieved from the file or inline block.
+                - The raw text string retrieved from the file or inline block.
                 - An error message node if neither ':file:' nor inline content exists,
                   or if reading the target file fails, otherwise None.
         """
@@ -193,39 +193,39 @@ class DataTableDirective(Directive):
 
         return self._heuristic_format_detection(raw_text)
 
-    def _heuristic_format_detection(self, text: str) -> str:
+    def _heuristic_format_detection(self, raw_text: str) -> str:
         """Tries parsing as JSON, TOML, and YAML in order to infer data format.
 
         Attempts JSON parsing first, then TOML parsing, then YAML parsing. If all
         parsers fail, falls back to 'yaml' as the default format.
 
         Args:
-            text: Raw data text string.
+            raw_text: Raw data text string.
 
         Returns:
             Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml' if ambiguous.
         """
         with contextlib.suppress(Exception):
-            if isinstance(json.loads(text), (list, dict)):
+            if isinstance(json.loads(raw_text), (list, dict)):
                 return "json"
 
         with contextlib.suppress(Exception):
-            if tomllib.loads(text):
+            if tomllib.loads(raw_text):
                 return "toml"
 
         with contextlib.suppress(Exception):
-            if isinstance(yaml.safe_load(text), (list, dict)):
+            if isinstance(yaml.safe_load(raw_text), (list, dict)):
                 return "yaml"
 
         return "yaml"
 
     def _parse_by_format(
-        self, text: str, data_format: str
+        self, raw_text: str, data_format: str
     ) -> tuple[Any, str | None]:
         """Parses raw text using target format parser (json, toml, yaml).
 
         Args:
-            text: Raw data text string.
+            raw_text: Raw data text string.
             data_format: Format identifier ('json', 'toml', or 'yaml').
 
         Returns:
@@ -235,11 +235,11 @@ class DataTableDirective(Directive):
         """
         try:
             if data_format == "json":
-                return json.loads(text), None
+                return json.loads(raw_text), None
             if data_format == "toml":
-                return tomllib.loads(text), None
+                return tomllib.loads(raw_text), None
             if data_format == "yaml":
-                return yaml.safe_load(text), None
+                return yaml.safe_load(raw_text), None
             return (
                 None,
                 f"Unsupported format '{data_format}'. Use 'json', 'yaml', or 'toml'.",
