@@ -1,4 +1,4 @@
-"""Directive implementation for rendering TOML, YAML, and JSON tables."""
+"""Sphinx directive for rendering TOML, YAML, and JSON data as docutils tables."""
 
 from __future__ import annotations
 
@@ -16,11 +16,10 @@ from docutils.statemachine import StringList
 
 
 class DataTableDirective(Directive):
-    """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
+    """A Sphinx directive that transforms structured data into HTML/LaTeX tables.
 
-    This directive parses raw inline TOML/YAML/JSON text or external data files
-    into structured data and constructs docutils table nodes. Each cell's text is
-    parsed via nested_parse to support Markdown inline and block elements.
+    Supports TOML, YAML, and JSON data provided either inline or via external files.
+    Cell text is parsed as Markdown/reST AST to preserve formatting.
     """
 
     has_content = True
@@ -34,268 +33,265 @@ class DataTableDirective(Directive):
     }
 
     def run(self) -> list[nodes.Node]:
-        """Main execution method invoked by docutils when parsing directive.
+        """Orchestrates the table rendering process and returns docutils AST nodes."""
+        # 1. Load raw text content from external file or inline block
+        raw_text, load_error = self._load_source_text()
+        if load_error:
+            return [load_error]
 
-        Returns:
-            A list containing constructed docutils table node or error nodes.
-        """
-        env = (
-            self.state.document.settings.env
-            if hasattr(self.state.document.settings, "env")
-            else None
-        )
+        # 2. Parse raw text into structured row dictionaries
+        rows, parse_error = self._parse_to_row_dictionaries(raw_text)
+        if parse_error:
+            return [parse_error]
 
-        # 1. Obtain raw data content
-        file_path = self.options.get("file")
-        raw_text = ""
+        # 3. Construct and return the docutils table AST node
+        table_node, build_error = self._construct_table_node(rows)
+        if build_error:
+            return [build_error]
 
-        if file_path:
-            if env:
-                # Resolve relative path to sphinx doc source directory
-                rel_path, abs_path = env.relfn2path(file_path)
-                env.note_dependency(rel_path)
-            else:
-                abs_path = os.path.abspath(file_path)
-
-            try:
-                with open(abs_path, encoding="utf-8") as f:
-                    raw_text = f.read()
-            except OSError as err:
-                return [
-                    self.state_machine.reporter.error(
-                        f"data-table: Could not read file '{file_path}': {err}",
-                        line=self.lineno,
-                    )
-                ]
-        elif self.content:
-            raw_text = textwrap.dedent("\n".join(self.content)).strip()
-        else:
-            return [
-                self.state_machine.reporter.error(
-                    "data-table: Neither content nor ':file:' option provided.",
-                    line=self.lineno,
-                )
-            ]
-
-        # 2. Determine format (yaml / toml / json)
-        fmt = self.options.get("format", "auto").lower()
-
-        if fmt == "auto":
-            if file_path:
-                ext = os.path.splitext(file_path)[1].lower()
-                if ext in (".toml",):
-                    fmt = "toml"
-                elif ext in (".yaml", ".yml"):
-                    fmt = "yaml"
-                elif ext in (".json",):
-                    fmt = "json"
-            if fmt == "auto":
-                fmt = self._guess_format(raw_text)
-
-        # 3. Parse data
-        data, parse_err = self._parse_data(raw_text, fmt)
-        if parse_err:
-            return [
-                self.state_machine.reporter.error(
-                    f"data-table: Failed to parse {fmt.upper()} data: {parse_err}",
-                    line=self.lineno,
-                )
-            ]
-
-        rows_data = self._normalize_rows(data)
-        if not rows_data:
-            return [
-                self.state_machine.reporter.warning(
-                    "data-table: Data is empty or invalid format.",
-                    line=self.lineno,
-                )
-            ]
-
-        # 4. Determine Headers
-        headers_opt = self.options.get("headers")
-        if headers_opt:
-            headers = [h.strip() for h in headers_opt.split(",") if h.strip()]
-        else:
-            # Collect all unique keys across rows while preserving order
-            headers = []
-            for row in rows_data:
-                if isinstance(row, dict):
-                    for k in row.keys():
-                        if k not in headers:
-                            headers.append(k)
-
-        if not headers:
-            return [
-                self.state_machine.reporter.error(
-                    "data-table: Could not determine headers from data.",
-                    line=self.lineno,
-                )
-            ]
-
-        # 5. Build Docutils Table Node
-        table_node = self._build_table_node(headers, rows_data)
         return [table_node]
 
-    def _guess_format(self, text: str) -> str:
-        """Guesses whether raw text content is JSON, TOML, or YAML.
+    # =========================================================================
+    # Step 1: Source Text Loading
+    # =========================================================================
 
-        Args:
-            text: The raw string content of the data.
+    def _load_source_text(self) -> tuple[str, nodes.Node | None]:
+        """Loads raw data text from the specified file option or inline content."""
+        file_path = self.options.get("file")
+        if file_path:
+            return self._read_external_file(file_path)
 
-        Returns:
-            The string 'json', 'toml', or 'yaml'. Defaults to 'yaml' if ambiguous.
-        """
-        # Try JSON first
-        with contextlib.suppress(Exception):
-            parsed_json = json.loads(text)
-            if isinstance(parsed_json, (list, dict)):
+        if self.content:
+            inline_text = textwrap.dedent("\n".join(self.content)).strip()
+            return inline_text, None
+
+        error_node = self.state_machine.reporter.error(
+            "data-table: Neither content nor ':file:' option provided.",
+            line=self.lineno,
+        )
+        return "", error_node
+
+    def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
+        """Reads text from an external file path, tracking Sphinx dependency."""
+        env = getattr(self.state.document.settings, "env", None)
+        if env:
+            rel_path, abs_path = env.relfn2path(file_path)
+            env.note_dependency(rel_path)
+        else:
+            abs_path = os.path.abspath(file_path)
+
+        try:
+            with open(abs_path, encoding="utf-8") as f:
+                return f.read(), None
+        except OSError as err:
+            error_node = self.state_machine.reporter.error(
+                f"data-table: Could not read file '{file_path}': {err}",
+                line=self.lineno,
+            )
+            return "", error_node
+
+    # =========================================================================
+    # Step 2: Data Parsing & Normalization
+    # =========================================================================
+
+    def _parse_to_row_dictionaries(
+        self, raw_text: str
+    ) -> tuple[list[dict[str, Any]], nodes.Node | None]:
+        """Detects format, parses raw text, and normalizes into row dictionaries."""
+        data_format = self._detect_data_format(raw_text)
+        parsed_data, parse_err_msg = self._parse_by_format(raw_text, data_format)
+
+        if parse_err_msg:
+            error_node = self.state_machine.reporter.error(
+                parse_err_msg, line=self.lineno
+            )
+            return [], error_node
+
+        rows = self._normalize_parsed_data(parsed_data)
+        if not rows:
+            warning_node = self.state_machine.reporter.warning(
+                "data-table: Data is empty or invalid format.",
+                line=self.lineno,
+            )
+            return [], warning_node
+
+        return rows, None
+
+    def _detect_data_format(self, raw_text: str) -> str:
+        """Detects data format using option, file extension, or content heuristic."""
+        specified_format = self.options.get("format", "auto").lower()
+        if specified_format != "auto":
+            return specified_format
+
+        file_path = self.options.get("file")
+        if file_path:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in (".toml",):
+                return "toml"
+            if ext in (".yaml", ".yml"):
+                return "yaml"
+            if ext in (".json",):
                 return "json"
 
-        # Try TOML
+        return self._heuristic_format_detection(raw_text)
+
+    def _heuristic_format_detection(self, text: str) -> str:
+        """Tries parsing as JSON, TOML, and YAML to infer format."""
         with contextlib.suppress(Exception):
-            parsed_toml = tomllib.loads(text)
-            if isinstance(parsed_toml, dict) and parsed_toml:
+            if isinstance(json.loads(text), (list, dict)):
+                return "json"
+
+        with contextlib.suppress(Exception):
+            if tomllib.loads(text):
                 return "toml"
 
-        # Try YAML
         with contextlib.suppress(Exception):
-            parsed_yaml = yaml.safe_load(text)
-            if isinstance(parsed_yaml, (list, dict)):
+            if isinstance(yaml.safe_load(text), (list, dict)):
                 return "yaml"
 
         return "yaml"
 
-    def _parse_data(self, text: str, fmt: str) -> tuple[Any, str | None]:
-        """Parses raw text data using the specified format parser.
-
-        Args:
-            text: Raw data text string.
-            fmt: Format string ('json', 'toml', or 'yaml').
-
-        Returns:
-            A tuple containing (parsed_object, error_message_or_None).
-        """
-        if fmt == "json":
-            try:
+    def _parse_by_format(
+        self, text: str, data_format: str
+    ) -> tuple[Any, str | None]:
+        """Parses raw text using target format parser (json, toml, yaml)."""
+        try:
+            if data_format == "json":
                 return json.loads(text), None
-            except Exception as e:
-                return None, str(e)
-        elif fmt == "toml":
-            try:
+            if data_format == "toml":
                 return tomllib.loads(text), None
-            except Exception as e:
-                return None, str(e)
-        elif fmt == "yaml":
-            try:
+            if data_format == "yaml":
                 return yaml.safe_load(text), None
-            except Exception as e:
-                return None, str(e)
-        else:
-            return None, f"Unsupported format '{fmt}'. Use 'json', 'yaml', or 'toml'."
+            return (
+                None,
+                f"Unsupported format '{data_format}'. Use 'json', 'yaml', or 'toml'.",
+            )
+        except Exception as err:
+            return None, f"Failed to parse {data_format.upper()} data: {err}"
 
-    def _normalize_rows(self, data: Any) -> list[dict[str, Any]]:
-        """Normalizes parsed data into a list of row dictionaries.
-
-        Args:
-            data: Parsed data resulting from JSON, TOML, or YAML parser.
-
-        Returns:
-            A list of dictionary objects representing table rows.
-        """
+    def _normalize_parsed_data(self, data: Any) -> list[dict[str, Any]]:
+        """Normalizes parsed object into a flat list of row dictionaries."""
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
-        elif isinstance(data, dict):
-            # If root is a dict containing a list of dicts (e.g. {"items": [...]})
+
+        if isinstance(data, dict):
             for val in data.values():
                 if isinstance(val, list) and all(isinstance(x, dict) for x in val):
                     return val
-            # Or a single row dict
             return [data]
+
         return []
 
-    def _build_table_node(
-        self, headers: list[str], rows_data: list[dict[str, Any]]
-    ) -> nodes.table:
-        """Constructs docutils table nodes and parses Markdown for each cell.
+    # =========================================================================
+    # Step 3: Table AST Node Construction
+    # =========================================================================
 
-        Args:
-            headers: A list of column header names.
-            rows_data: A list of row dictionary objects containing cell contents.
+    def _construct_table_node(
+        self, rows: list[dict[str, Any]]
+    ) -> tuple[nodes.table, nodes.Node | None]:
+        """Constructs docutils table node including headers and row cells."""
+        headers = self._resolve_column_headers(rows)
+        if not headers:
+            error_node = self.state_machine.reporter.error(
+                "data-table: Could not determine headers from data.",
+                line=self.lineno,
+            )
+            return nodes.table(), error_node
 
-        Returns:
-            A docutils.nodes.table instance containing header and body rows.
-        """
-        table = nodes.table()
-        table["classes"] += ["datatable"]
+        table_node = nodes.table()
+        table_node["classes"] += ["datatable"]
+
         tgroup = nodes.tgroup(cols=len(headers))
-        table += tgroup
+        table_node += tgroup
 
         for _ in headers:
             tgroup += nodes.colspec(colwidth=1)
 
-        # Header Row
+        tgroup += self._build_header_row_node(headers)
+        tgroup += self._build_body_row_nodes(headers, rows)
+
+        return table_node, None
+
+    def _resolve_column_headers(self, rows: list[dict[str, Any]]) -> list[str]:
+        """Resolves column headers from explicit directive option or row dict keys."""
+        headers_option = self.options.get("headers")
+        if headers_option:
+            return [h.strip() for h in headers_option.split(",") if h.strip()]
+
+        headers: list[str] = []
+        for row in rows:
+            for key in row.keys():
+                if key not in headers:
+                    headers.append(key)
+        return headers
+
+    def _build_header_row_node(self, headers: list[str]) -> nodes.thead:
+        """Builds docutils table header row node (thead)."""
         thead = nodes.thead()
-        tgroup += thead
         header_row = nodes.row()
         thead += header_row
 
-        for header_text in headers:
-            entry = nodes.entry()
-            self._parse_cell_markdown(str(header_text), entry)
-            header_row += entry
+        for header_name in headers:
+            entry_node = nodes.entry()
+            self._render_markdown_cell_content(str(header_name), entry_node)
+            header_row += entry_node
 
-        # Body Rows
+        return thead
+
+    def _build_body_row_nodes(
+        self, headers: list[str], rows: list[dict[str, Any]]
+    ) -> nodes.tbody:
+        """Builds docutils table body rows node (tbody)."""
         tbody = nodes.tbody()
-        tgroup += tbody
 
-        for row_dict in rows_data:
+        for row_dict in rows:
             row_node = nodes.row()
             tbody += row_node
-            for h in headers:
-                entry = nodes.entry()
-                cell_value = row_dict.get(h, "")
+            for col_name in headers:
+                entry_node = nodes.entry()
+                cell_value = row_dict.get(col_name, "")
                 if cell_value is None:
                     cell_value = ""
-                self._parse_cell_markdown(str(cell_value), entry)
-                row_node += entry
+                self._render_markdown_cell_content(str(cell_value), entry_node)
+                row_node += entry_node
 
-        return table
+        return tbody
 
-    def _parse_cell_markdown(self, content_str: str, entry_node: nodes.entry) -> None:
-        """Parses cell string as Markdown/reST AST into docutils nodes in entry_node.
+    # =========================================================================
+    # Step 4: Markdown Cell Rendering & Builder Line Break Handling
+    # =========================================================================
 
-        Args:
-            content_str: The raw text content of the table cell.
-            entry_node: Target docutils.nodes.entry node to append child nodes into.
-        """
-        dedented_str = textwrap.dedent(content_str).strip()
-        if not dedented_str:
+    def _render_markdown_cell_content(
+        self, cell_text: str, entry_node: nodes.entry
+    ) -> None:
+        """Parses Markdown cell text into AST nodes and appends to entry_node."""
+        dedented_text = textwrap.dedent(cell_text).strip()
+        if not dedented_text:
             return
 
-        lines = dedented_str.splitlines()
+        lines = dedented_text.splitlines()
         string_list = StringList(lines, source="datatable_cell")
 
-        # Create temporary container node to hold nested parsed nodes
         container = nodes.Element()
         self.state.nested_parse(string_list, 0, container)
 
-        # Post-process container nodes to replace in-cell newlines with latex-safe
-        self._replace_cell_newlines(container)
+        is_latex_builder = self._is_latex_builder_active()
+        self._transform_line_breaks(container, is_latex=is_latex_builder)
 
-        # Transfer children from container to entry_node
         for child in container.children:
             entry_node += child
 
-    def _replace_cell_newlines(self, node: nodes.Node) -> None:
-        """Recursively replaces in-cell line breaks with raw break nodes.
+    def _is_latex_builder_active(self) -> bool:
+        """Checks if current Sphinx build target is LaTeX."""
+        env = getattr(self.state.document.settings, "env", None)
+        if env and hasattr(env, "app") and hasattr(env.app, "builder"):
+            return getattr(env.app.builder, "name", "") == "latex"
+        return False
 
-        WORKAROUND:
-            Sphinx's default LaTeXTranslator turns in-cell line break nodes into
-            '\\\\', which LaTeX interprets as a table row separator.
-
-        Args:
-            node: The docutils AST node to process recursively.
-        """
+    def _transform_line_breaks(
+        self, node: nodes.Node, is_latex: bool = False
+    ) -> None:
+        """Transforms in-cell line breaks for target builder (LaTeX vs HTML)."""
         new_children: list[nodes.Node] = []
         modified = False
 
@@ -306,26 +302,30 @@ class DataTableDirective(Directive):
                 and child.astext().strip() in ("\\\\", r"\\")
             ):
                 modified = True
-                latex_break = nodes.raw("", r"\newline ", format="latex")
-                latex_break.parent = node
-                new_children.append(latex_break)
+                if is_latex:
+                    latex_break = nodes.raw("", r"\newline ", format="latex")
+                    latex_break.parent = node
+                    new_children.append(latex_break)
             elif isinstance(child, nodes.Text) and "\n" in child:
                 modified = True
                 parts = str(child).split("\n")
                 for i, part in enumerate(parts):
                     clean_part = part.rstrip()
                     if clean_part:
-                        t = nodes.Text(clean_part)
-                        t.parent = node
-                        new_children.append(t)
+                        text_node = nodes.Text(clean_part)
+                        text_node.parent = node
+                        new_children.append(text_node)
                     if i < len(parts) - 1:
-                        latex_break = nodes.raw("", r"\newline ", format="latex")
-                        html_break = nodes.raw("", "<br/>", format="html")
-                        latex_break.parent = node
-                        html_break.parent = node
-                        new_children.extend([latex_break, html_break])
+                        if is_latex:
+                            latex_break = nodes.raw("", r"\newline ", format="latex")
+                            latex_break.parent = node
+                            new_children.append(latex_break)
+                        else:
+                            html_break = nodes.raw("", "<br/>", format="html")
+                            html_break.parent = node
+                            new_children.append(html_break)
             else:
-                self._replace_cell_newlines(child)
+                self._transform_line_breaks(child, is_latex=is_latex)
                 child.parent = node
                 new_children.append(child)
 
