@@ -289,6 +289,47 @@ class DataTableDirective(Directive):
         container = nodes.Element()
         self.state.nested_parse(string_list, 0, container)
 
+        # Post-process container nodes to replace in-cell newlines with latex-safe \newline
+        self._replace_cell_newlines(container)
+
         # Transfer children from container to entry_node
         for child in container.children:
             entry_node += child
+
+    def _replace_cell_newlines(self, node: nodes.Node) -> None:
+        """Recursively replaces text node newlines with format-safe break nodes.
+
+        Args:
+            node: The docutils node to process recursively.
+        """
+        new_children: list[nodes.Node] = []
+        modified = False
+
+        for child in list(node.children):
+            if isinstance(child, nodes.raw) and child.get("format") == "latex" and child.astext().strip() in ("\\\\", r"\\"):
+                modified = True
+                latex_break = nodes.raw("", r"\newline ", format="latex")
+                latex_break.parent = node
+                new_children.append(latex_break)
+            elif isinstance(child, nodes.Text) and "\n" in child:
+                modified = True
+                parts = str(child).split("\n")
+                for i, part in enumerate(parts):
+                    clean_part = part.rstrip()
+                    if clean_part:
+                        t = nodes.Text(clean_part)
+                        t.parent = node
+                        new_children.append(t)
+                    if i < len(parts) - 1:
+                        latex_break = nodes.raw("", r"\newline ", format="latex")
+                        html_break = nodes.raw("", "<br/>", format="html")
+                        latex_break.parent = node
+                        html_break.parent = node
+                        new_children.extend([latex_break, html_break])
+            else:
+                self._replace_cell_newlines(child)
+                child.parent = node
+                new_children.append(child)
+
+        if modified:
+            node.children = new_children
