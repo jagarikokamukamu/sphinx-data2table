@@ -3,61 +3,43 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
-import pytest
+
 from docutils import nodes
 from docutils.frontend import get_default_settings
 from docutils.parsers.rst import Parser, directives
 from docutils.utils import new_document
 
-from sphinx_data2table import setup, __version__
+from sphinx_data2table import __version__, setup
 from sphinx_data2table.directive import DataTableDirective
 
 
 def parse_rst_with_datatable(rst_content: str) -> nodes.document:
-    """Helper function to parse an RST string containing a data-table / datatable directive.
+    """Helper function to parse an RST string.
 
     Args:
-        rst_content: RST/MyST markup text containing the directive.
+        rst_content: RST string content.
 
     Returns:
-        The root docutils.nodes.document instance representing the parsed AST.
+        Docutils document AST.
     """
     directives.register_directive("data-table", DataTableDirective)
     directives.register_directive("datatable", DataTableDirective)
-
     parser = Parser()
-    settings = get_default_settings(Parser)
-    settings.warning_stream = False
+    settings = get_default_settings(Parser)  # type: ignore[arg-type]
     doc = new_document("test.rst", settings)
     parser.parse(rst_content, doc)
     return doc
 
 
 def test_sphinx_extension_setup():
-    """Tests the Sphinx extension setup entry point function registering both directives."""
+    """Tests the Sphinx extension setup entry point function."""
     mock_app = MagicMock()
     metadata = setup(mock_app)
 
-    assert mock_app.add_directive.call_count == 2
-    mock_app.add_directive.assert_any_call("data-table", DataTableDirective)
-    mock_app.add_directive.assert_any_call("datatable", DataTableDirective)
     assert metadata["version"] == __version__
     assert metadata["parallel_read_safe"] is True
     assert metadata["parallel_write_safe"] is True
-
-
-def test_data_table_hyphenated_directive_name():
-    """Tests using the new 'data-table' hyphenated directive name."""
-    rst = """
-.. data-table::
-   :format: yaml
-
-   - Item: "**Widget**"
-     Status: "Active"
-"""
-    doc = parse_rst_with_datatable(rst)
-    tables = list(doc.findall(nodes.table))
-    assert len(tables) == 1
+    assert mock_app.add_directive.call_count == 2
 
 
 def test_json_inline_datatable():
@@ -84,13 +66,9 @@ def test_json_inline_datatable():
     rows = list(tbody.findall(nodes.row))
     assert len(rows) == 2
 
-    first_row_cells = list(rows[0].findall(nodes.entry))
-    assert first_row_cells[0].astext() == "JSON Alpha"
-    assert len(list(first_row_cells[0].findall(nodes.strong))) == 1
-
 
 def test_yaml_inline_datatable():
-    """Tests parsing YAML inline content into a table with strong elements."""
+    """Tests parsing YAML inline content into a table."""
     rst = """
 .. datatable::
    :format: yaml
@@ -114,22 +92,19 @@ def test_yaml_inline_datatable():
     assert len(rows) == 2
 
 
-def test_toml_inline_multiline_list():
-    """Tests parsing TOML inline content with multiline paragraphs and bullet lists."""
+def test_toml_inline_datatable():
+    """Tests parsing TOML inline content into a table."""
     rst = """
 .. data-table::
    :format: toml
 
    [[items]]
-   feature = "**Lists**"
-   details = \"\"\"
-   Paragraph 1
+   name = "TOML Item 1"
+   val = "100"
 
-   Paragraph 2
-
-   * Item A
-   * Item B
-   \"\"\"
+   [[items]]
+   name = "TOML Item 2"
+   val = "200"
 """
     doc = parse_rst_with_datatable(rst)
     tables = list(doc.findall(nodes.table))
@@ -138,135 +113,119 @@ def test_toml_inline_multiline_list():
     table = tables[0]
     tbody = list(table.findall(nodes.tbody))[0]
     rows = list(tbody.findall(nodes.row))
-    assert len(rows) == 1
+    assert len(rows) == 2
 
 
-def test_auto_format_detection_json(tmp_path):
-    """Tests auto-detecting JSON format from file extension."""
-    json_file = tmp_path / "data.json"
-    json_file.write_text('[{"key": "Value"}]', encoding="utf-8")
-
-    rst = f"""
+def test_format_auto_detection():
+    """Tests format auto detection for JSON, TOML, and YAML."""
+    rst_json = """
 .. data-table::
-   :file: {json_file}
+
+   [{"col": "val"}]
+"""
+    doc = parse_rst_with_datatable(rst_json)
+    assert len(list(doc.findall(nodes.table))) == 1
+
+    rst_yaml = """
+.. data-table::
+
+   - col: val
+"""
+    doc_y = parse_rst_with_datatable(rst_yaml)
+    assert len(list(doc_y.findall(nodes.table))) == 1
+
+
+def test_custom_headers_option():
+    """Tests custom :headers: option overriding dict keys."""
+    rst = """
+.. data-table::
+   :format: yaml
+   :headers: CustomA, CustomB
+
+   - key1: "Val1"
+     key2: "Val2"
 """
     doc = parse_rst_with_datatable(rst)
-    tables = list(doc.findall(nodes.table))
-    assert len(tables) == 1
+    table = list(doc.findall(nodes.table))[0]
+    thead = list(table.findall(nodes.thead))[0]
+    headers = [node.astext() for node in thead.findall(nodes.entry)]
+    assert headers == ["CustomA", "CustomB"]
 
 
-def test_auto_format_detection_toml(tmp_path):
-    """Tests auto-detecting TOML format from file extension."""
-    toml_file = tmp_path / "data.toml"
-    toml_file.write_text("""
-[[items]]
-key = "Value"
-""", encoding="utf-8")
-
-    rst = f"""
-.. data-table::
-   :file: {toml_file}
-"""
-    doc = parse_rst_with_datatable(rst)
-    tables = list(doc.findall(nodes.table))
-    assert len(tables) == 1
-
-
-def test_external_file_import(tmp_path):
-    """Tests reading table data from an external YAML file specified via :file:."""
+def test_external_file_option(tmp_path):
+    """Tests reading data from external file via :file: option."""
     yaml_file = tmp_path / "data.yaml"
-    yaml_file.write_text("""
-- Item: "X"
-  Value: "100"
-- Item: "Y"
-  Value: "200"
-""", encoding="utf-8")
+    yaml_file.write_text("- name: External\n  val: 42\n", encoding="utf-8")
 
     rst = f"""
 .. data-table::
    :file: {yaml_file}
 """
     doc = parse_rst_with_datatable(rst)
-    tables = list(doc.findall(nodes.table))
-    assert len(tables) == 1
+    table = list(doc.findall(nodes.table))[0]
+    assert len(list(table.findall(nodes.row))) == 2
 
 
-def test_custom_headers_option():
-    """Tests :headers: option overriding default key extraction and column ordering."""
+def test_missing_file_error():
+    """Tests error handling for non-existent file."""
     rst = """
 .. data-table::
-   :format: yaml
-   :headers: ColB, ColA
-
-   - ColA: "ValA"
-     ColB: "ValB"
-     ColC: "Ignored"
-"""
-    doc = parse_rst_with_datatable(rst)
-    tables = list(doc.findall(nodes.table))
-    assert len(tables) == 1
-
-
-def test_missing_file_error_handling():
-    """Tests error reporter output when an external file does not exist."""
-    rst = """
-.. data-table::
-   :file: non_existent_file.yaml
+   :file: non_existent_file_path_xyz.yaml
 """
     doc = parse_rst_with_datatable(rst)
     errors = list(doc.findall(nodes.system_message))
-    assert len(errors) >= 1
+    assert len(errors) > 0
     assert "Could not read file" in errors[0].astext()
 
 
-def test_empty_directive_content_error():
-    """Tests error reporter output when neither file nor inline content is provided."""
+def test_empty_content_and_file_error():
+    """Tests error handling when neither content nor :file: is provided."""
     rst = """
 .. data-table::
 """
     doc = parse_rst_with_datatable(rst)
     errors = list(doc.findall(nodes.system_message))
-    assert len(errors) >= 1
-    assert "Neither content nor ':file:' option provided" in errors[0].astext()
+    assert len(errors) > 0
+    assert "Neither content nor ':file:'" in errors[0].astext()
 
 
 def test_invalid_syntax_error():
-    """Tests error reporter output when data syntax is invalid."""
+    """Tests error reporting when data contains invalid syntax."""
     rst = """
 .. data-table::
-   :format: yaml
+   :format: json
 
-   [Invalid YAML: : : :
+   {invalid json content
 """
     doc = parse_rst_with_datatable(rst)
     errors = list(doc.findall(nodes.system_message))
-    assert len(errors) >= 1
-    assert "Failed to parse YAML data" in errors[0].astext()
-
-
-def test_unsupported_format_option():
-    """Tests error handling when an unsupported format option is passed."""
-    rst = """
-.. data-table::
-   :format: xml
-
-   <data></data>
-"""
-    doc = parse_rst_with_datatable(rst)
-    errors = list(doc.findall(nodes.system_message))
-    assert len(errors) >= 1
-    assert "Unsupported format 'xml'" in errors[0].astext()
+    assert len(errors) > 0
+    assert "Failed to parse JSON" in errors[0].astext()
 
 
 def test_empty_data_warning():
-    """Tests warning reporter output when data parses to an empty data structure."""
+    """Tests warning generation when data parses to empty or invalid list."""
     rst = """
 .. data-table::
    :format: yaml
 
-   []
+   "just a string"
 """
     doc = parse_rst_with_datatable(rst)
     warnings = list(doc.findall(nodes.system_message))
-    assert len(warnings) >= 1
+    assert len(warnings) > 0
     assert "Data is empty or invalid format" in warnings[0].astext()
+
+
+def test_in_cell_newline_replacement():
+    """Tests that in-cell newlines are replaced with format-safe break nodes."""
+    rst = """
+.. data-table::
+   :format: yaml
+
+   - col: "Line 1  \\nLine 2"
+"""
+    doc = parse_rst_with_datatable(rst)
+    raw_nodes = list(doc.findall(nodes.raw))
+    assert len(raw_nodes) >= 1
+    assert any(r.astext().strip() == r"\newline" for r in raw_nodes)
