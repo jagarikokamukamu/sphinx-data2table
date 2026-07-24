@@ -2,31 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import sys
 import textwrap
+import tomllib
 from typing import Any
 
+import yaml
 from docutils import nodes
 from docutils.parsers.rst import Directive, directives
 from docutils.statemachine import StringList
-import yaml
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomli as tomllib
-    except ImportError:
-        tomllib = None  # type: ignore[assignment]
 
 
 class DataTableDirective(Directive):
     """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
 
-    This directive parses raw inline TOML/YAML/JSON text or external data files into
-    structured data and constructs docutils table nodes. Each cell's text is
+    This directive parses raw inline TOML/YAML/JSON text or external data files
+    into structured data and constructs docutils table nodes. Each cell's text is
     parsed via nested_parse to support Markdown inline and block elements.
     """
 
@@ -41,12 +34,16 @@ class DataTableDirective(Directive):
     }
 
     def run(self) -> list[nodes.Node]:
-        """Main execution method invoked by docutils when parsing the directive.
+        """Main execution method invoked by docutils when parsing directive.
 
         Returns:
-            A list containing either a constructed docutils table node or error/warning nodes.
+            A list containing constructed docutils table node or error nodes.
         """
-        env = self.state.document.settings.env if hasattr(self.state.document.settings, "env") else None
+        env = (
+            self.state.document.settings.env
+            if hasattr(self.state.document.settings, "env")
+            else None
+        )
 
         # 1. Obtain raw data content
         file_path = self.options.get("file")
@@ -149,29 +146,22 @@ class DataTableDirective(Directive):
             The string 'json', 'toml', or 'yaml'. Defaults to 'yaml' if ambiguous.
         """
         # Try JSON first
-        try:
+        with contextlib.suppress(Exception):
             parsed_json = json.loads(text)
             if isinstance(parsed_json, (list, dict)):
                 return "json"
-        except Exception:
-            pass
 
         # Try TOML
-        if tomllib:
-            try:
-                parsed_toml = tomllib.loads(text)
-                if isinstance(parsed_toml, dict) and parsed_toml:
-                    return "toml"
-            except Exception:
-                pass
+        with contextlib.suppress(Exception):
+            parsed_toml = tomllib.loads(text)
+            if isinstance(parsed_toml, dict) and parsed_toml:
+                return "toml"
 
         # Try YAML
-        try:
+        with contextlib.suppress(Exception):
             parsed_yaml = yaml.safe_load(text)
             if isinstance(parsed_yaml, (list, dict)):
                 return "yaml"
-        except Exception:
-            pass
 
         return "yaml"
 
@@ -191,8 +181,6 @@ class DataTableDirective(Directive):
             except Exception as e:
                 return None, str(e)
         elif fmt == "toml":
-            if not tomllib:
-                return None, "tomllib module not available in this Python environment."
             try:
                 return tomllib.loads(text), None
             except Exception as e:
@@ -225,7 +213,9 @@ class DataTableDirective(Directive):
             return [data]
         return []
 
-    def _build_table_node(self, headers: list[str], rows_data: list[dict[str, Any]]) -> nodes.table:
+    def _build_table_node(
+        self, headers: list[str], rows_data: list[dict[str, Any]]
+    ) -> nodes.table:
         """Constructs docutils table nodes and parses Markdown for each cell.
 
         Args:
@@ -271,12 +261,14 @@ class DataTableDirective(Directive):
 
         return table
 
-    def _parse_cell_markdown(self, content_str: str, entry_node: nodes.entry) -> None:
-        """Parses a cell string as Markdown/reST AST into docutils nodes inside entry_node.
+    def _parse_cell_markdown(
+        self, content_str: str, entry_node: nodes.entry
+    ) -> None:
+        """Parses cell string as Markdown/reST AST into docutils nodes in entry_node.
 
         Args:
             content_str: The raw text content of the table cell.
-            entry_node: Target docutils.nodes.entry node to append parsed child nodes into.
+            entry_node: Target docutils.nodes.entry node to append child nodes into.
         """
         dedented_str = textwrap.dedent(content_str).strip()
         if not dedented_str:
@@ -289,7 +281,7 @@ class DataTableDirective(Directive):
         container = nodes.Element()
         self.state.nested_parse(string_list, 0, container)
 
-        # Post-process container nodes to replace in-cell newlines with latex-safe \newline
+        # Post-process container nodes to replace in-cell newlines with latex-safe
         self._replace_cell_newlines(container)
 
         # Transfer children from container to entry_node
@@ -297,16 +289,11 @@ class DataTableDirective(Directive):
             entry_node += child
 
     def _replace_cell_newlines(self, node: nodes.Node) -> None:
-        """Recursively replaces in-cell line breaks with format-specific raw break nodes.
+        """Recursively replaces in-cell line breaks with raw break nodes.
 
         WORKAROUND:
-            Sphinx's default LaTeXTranslator turns in-cell line break nodes into '\\',
-            which LaTeX interprets as a table row separator, moving the remaining cell
-            text to the first column of the next row. This method works around that
-            Sphinx LaTeX writer limitation by replacing in-cell line breaks with
-            format-specific raw nodes:
-                - format="latex": r"\\newline " (prevents table row jump)
-                - format="html": "<br/>" (renders line breaks in HTML tables)
+            Sphinx's default LaTeXTranslator turns in-cell line break nodes into
+            '\\\\', which LaTeX interprets as a table row separator.
 
         Args:
             node: The docutils AST node to process recursively.
@@ -315,7 +302,11 @@ class DataTableDirective(Directive):
         modified = False
 
         for child in list(node.children):
-            if isinstance(child, nodes.raw) and child.get("format") == "latex" and child.astext().strip() in ("\\\\", r"\\"):
+            if (
+                isinstance(child, nodes.raw)
+                and child.get("format") == "latex"
+                and child.astext().strip() in ("\\\\", r"\\")
+            ):
                 modified = True
                 latex_break = nodes.raw("", r"\newline ", format="latex")
                 latex_break.parent = node
