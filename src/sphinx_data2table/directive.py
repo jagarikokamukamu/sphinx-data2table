@@ -45,16 +45,17 @@ class DataTableDirective(Directive):
         file_path = self.options.get("file")
         if file_path:
             data_text, load_error = self._load_data_text_from_file(file_path)
+            if load_error:
+                return [load_error]
         elif self.content:
-            data_text, load_error = self._load_data_text_from_inline(), None
+            data_text = self._load_data_text_from_inline()
         else:
-            data_text, load_error = "", self.state_machine.reporter.error(
-                "data-table: Neither content nor ':file:' option provided.",
-                line=self.lineno,
-            )
-
-        if load_error:
-            return [load_error]
+            return [
+                self.state_machine.reporter.error(
+                    "data-table: Neither content nor ':file:' option provided.",
+                    line=self.lineno,
+                )
+            ]
 
         # 2. Parse data text into structured row dictionaries
         rows, parse_error = self._parse_to_row_dictionaries(data_text)
