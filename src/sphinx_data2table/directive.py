@@ -19,8 +19,8 @@ class DataTableDirective(Directive):
     """A Sphinx directive that transforms structured data into HTML/LaTeX tables.
 
     Supports TOML, YAML, and JSON data provided either inline within the document
-    or via an external data file path. Each table cell's text is parsed as Markdown/reST
-    AST to preserve inline and block element formatting.
+    or via an external file path specified by the ':file:' option. Cell text is
+    parsed as Markdown/reST AST to preserve inline and block element formatting.
     """
 
     has_content = True
@@ -62,13 +62,16 @@ class DataTableDirective(Directive):
     # =========================================================================
 
     def _load_source_text(self) -> tuple[str, nodes.Node | None]:
-        """Loads raw data text from the specified file option or inline content.
+        """Loads raw data text from either the ':file:' option or inline content block.
+
+        Prioritizes the ':file:' option if specified. If ':file:' is omitted, it reads
+        the directive's inline content body.
 
         Returns:
             A tuple containing:
-                - The raw text content string.
-                - An error node if neither content nor valid file path is provided,
-                  otherwise None.
+                - The raw data text string retrieved from the file or inline block.
+                - An error message node if neither ':file:' nor inline content exists,
+                  or if reading the target file fails, otherwise None.
         """
         file_path = self.options.get("file")
         if file_path:
@@ -85,14 +88,14 @@ class DataTableDirective(Directive):
         return "", error_node
 
     def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
-        """Reads text from an external file path, tracking Sphinx dependency.
+        """Reads raw text from external file, registering Sphinx build dependency.
 
         Args:
-            file_path: Relative or absolute path to the target data file.
+            file_path: Relative path (from Sphinx doc directory) or absolute path.
 
         Returns:
             A tuple containing:
-                - The file contents as a string.
+                - The raw text contents of the external data file.
                 - An error node if the file cannot be read, otherwise None.
         """
         env = getattr(self.state.document.settings, "env", None)
@@ -150,13 +153,17 @@ class DataTableDirective(Directive):
         return rows, None
 
     def _detect_data_format(self, raw_text: str) -> str:
-        """Detects data format using option, file extension, or content heuristic.
+        """Determines format via ':format:', file extension, or content heuristic.
+
+        Checks the explicit ':format:' directive option first. If set to 'auto'
+        or omitted, inspects file extension of the ':file:' option (.json, .toml,
+        .yaml, .yml). If still ambiguous, performs heuristic content parsing.
 
         Args:
             raw_text: The raw string content of the data.
 
         Returns:
-            Format string ('json', 'toml', or 'yaml').
+            Target format identifier ('json', 'toml', or 'yaml').
         """
         specified_format = self.options.get("format", "auto").lower()
         if specified_format != "auto":
@@ -175,13 +182,13 @@ class DataTableDirective(Directive):
         return self._heuristic_format_detection(raw_text)
 
     def _heuristic_format_detection(self, text: str) -> str:
-        """Tries parsing as JSON, TOML, and YAML to infer data format.
+        """Tries parsing as JSON, TOML, and YAML in order to infer data format.
 
         Args:
             text: Raw data text string.
 
         Returns:
-            Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml'.
+            Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml' if ambiguous.
         """
         with contextlib.suppress(Exception):
             if isinstance(json.loads(text), (list, dict)):
@@ -227,6 +234,9 @@ class DataTableDirective(Directive):
 
     def _normalize_parsed_data(self, data: Any) -> list[dict[str, Any]]:
         """Normalizes parsed object into a flat list of row dictionaries.
+
+        Accepts either a list of dictionaries, a root dictionary containing a list
+        of dictionaries, or a single row dictionary.
 
         Args:
             data: Parsed Python object resulting from JSON, TOML, or YAML parser.
@@ -286,6 +296,9 @@ class DataTableDirective(Directive):
 
     def _resolve_column_headers(self, rows: list[dict[str, Any]]) -> list[str]:
         """Resolves column headers from explicit directive option or row dict keys.
+
+        Prioritizes the explicit ':headers:' option (comma-separated). If omitted,
+        collects all unique keys across row dictionaries while preserving order.
 
         Args:
             rows: List of row dictionary objects.
