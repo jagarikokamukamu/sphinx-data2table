@@ -38,21 +38,21 @@ class DataTableDirective(Directive):
         """Orchestrates the table rendering pipeline and returns docutils AST nodes.
 
         Executes three steps:
-        1. Loads raw text from external file or inline content block.
-        2. Parses raw text into a list of row dictionaries.
+        1. Loads data text from external file or inline content block.
+        2. Parses data text into a list of row dictionaries.
         3. Constructs and builds the docutils table AST node.
 
         Returns:
             A single-element list containing the built docutils.nodes.table node,
             or an error/warning message node if any step fails.
         """
-        # 1. Load raw text content from external file or inline block
-        raw_text, load_error = self._load_raw_text()
+        # 1. Load data text content from external file or inline block
+        data_text, load_error = self._load_data_text()
         if load_error:
             return [load_error]
 
-        # 2. Parse raw text into structured row dictionaries
-        rows, parse_error = self._parse_to_row_dictionaries(raw_text)
+        # 2. Parse data text into structured row dictionaries
+        rows, parse_error = self._parse_to_row_dictionaries(data_text)
         if parse_error:
             return [parse_error]
 
@@ -64,18 +64,18 @@ class DataTableDirective(Directive):
         return [table_node]
 
     # =========================================================================
-    # Step 1: Raw Text Loading
+    # Step 1: Data Text Loading
     # =========================================================================
 
-    def _load_raw_text(self) -> tuple[str, nodes.Node | None]:
-        """Loads raw text from either the ':file:' option or inline content block.
+    def _load_data_text(self) -> tuple[str, nodes.Node | None]:
+        """Loads data text from either the ':file:' option or inline content block.
 
         Prioritizes the ':file:' option if specified. If ':file:' is omitted, it reads
         the directive's inline content body.
 
         Returns:
             A tuple containing:
-                - The raw text string retrieved from the file or inline block.
+                - The data text string retrieved from the file or inline block.
                 - An error message node if neither ':file:' nor inline content exists,
                   or if reading the target file fails, otherwise None.
         """
@@ -94,7 +94,7 @@ class DataTableDirective(Directive):
         return "", error_node
 
     def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
-        """Reads raw text from external file, registering Sphinx build dependency.
+        """Reads data text from external file, registering Sphinx build dependency.
 
         Resolves relative file paths against the Sphinx document source directory and
         notifies the Sphinx environment so that doc rebuilds trigger when file changes.
@@ -104,7 +104,7 @@ class DataTableDirective(Directive):
 
         Returns:
             A tuple containing:
-                - The raw text contents of the external data file.
+                - The data text contents of the external file.
                 - An error node if the file cannot be read, otherwise None.
         """
         env = getattr(self.state.document.settings, "env", None)
@@ -129,15 +129,15 @@ class DataTableDirective(Directive):
     # =========================================================================
 
     def _parse_to_row_dictionaries(
-        self, raw_text: str
+        self, data_text: str
     ) -> tuple[list[dict[str, Any]], nodes.Node | None]:
-        """Detects format, parses raw text, and normalizes into row dictionaries.
+        """Detects format, parses data text, and normalizes into row dictionaries.
 
-        Detects the data format (json, toml, yaml), parses raw_text using the matching
+        Detects the data format (json, toml, yaml), parses data_text using the matching
         parser, and normalizes the parsed result into a flat list of row dictionaries.
 
         Args:
-            raw_text: Raw string content of TOML, YAML, or JSON data.
+            data_text: String content of TOML, YAML, or JSON data.
 
         Returns:
             A tuple containing:
@@ -145,8 +145,8 @@ class DataTableDirective(Directive):
                 - An error or warning message node if parsing fails or data is empty,
                   otherwise None.
         """
-        data_format = self._detect_data_format(raw_text)
-        parsed_data, parse_err_msg = self._parse_by_format(raw_text, data_format)
+        data_format = self._detect_data_format(data_text)
+        parsed_data, parse_err_msg = self._parse_by_format(data_text, data_format)
 
         if parse_err_msg:
             error_node = self.state_machine.reporter.error(
@@ -164,7 +164,7 @@ class DataTableDirective(Directive):
 
         return rows, None
 
-    def _detect_data_format(self, raw_text: str) -> str:
+    def _detect_data_format(self, data_text: str) -> str:
         """Determines format via ':format:', file extension, or content heuristic.
 
         Checks the explicit ':format:' directive option first. If set to 'auto'
@@ -172,7 +172,7 @@ class DataTableDirective(Directive):
         .yaml, .yml). If still ambiguous, performs heuristic content parsing.
 
         Args:
-            raw_text: The raw string content of the data.
+            data_text: The string content of the data.
 
         Returns:
             Target format identifier ('json', 'toml', or 'yaml').
@@ -191,41 +191,41 @@ class DataTableDirective(Directive):
             if ext in (".json",):
                 return "json"
 
-        return self._heuristic_format_detection(raw_text)
+        return self._heuristic_format_detection(data_text)
 
-    def _heuristic_format_detection(self, raw_text: str) -> str:
+    def _heuristic_format_detection(self, data_text: str) -> str:
         """Tries parsing as JSON, TOML, and YAML in order to infer data format.
 
         Attempts JSON parsing first, then TOML parsing, then YAML parsing. If all
         parsers fail, falls back to 'yaml' as the default format.
 
         Args:
-            raw_text: Raw data text string.
+            data_text: Data text string.
 
         Returns:
             Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml' if ambiguous.
         """
         with contextlib.suppress(Exception):
-            if isinstance(json.loads(raw_text), (list, dict)):
+            if isinstance(json.loads(data_text), (list, dict)):
                 return "json"
 
         with contextlib.suppress(Exception):
-            if tomllib.loads(raw_text):
+            if tomllib.loads(data_text):
                 return "toml"
 
         with contextlib.suppress(Exception):
-            if isinstance(yaml.safe_load(raw_text), (list, dict)):
+            if isinstance(yaml.safe_load(data_text), (list, dict)):
                 return "yaml"
 
         return "yaml"
 
     def _parse_by_format(
-        self, raw_text: str, data_format: str
+        self, data_text: str, data_format: str
     ) -> tuple[Any, str | None]:
-        """Parses raw text using target format parser (json, toml, yaml).
+        """Parses data text using target format parser (json, toml, yaml).
 
         Args:
-            raw_text: Raw data text string.
+            data_text: Data text string.
             data_format: Format identifier ('json', 'toml', or 'yaml').
 
         Returns:
@@ -235,11 +235,11 @@ class DataTableDirective(Directive):
         """
         try:
             if data_format == "json":
-                return json.loads(raw_text), None
+                return json.loads(data_text), None
             if data_format == "toml":
-                return tomllib.loads(raw_text), None
+                return tomllib.loads(data_text), None
             if data_format == "yaml":
-                return yaml.safe_load(raw_text), None
+                return yaml.safe_load(data_text), None
             return (
                 None,
                 f"Unsupported format '{data_format}'. Use 'json', 'yaml', or 'toml'.",
