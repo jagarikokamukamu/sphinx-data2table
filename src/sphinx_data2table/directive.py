@@ -18,9 +18,10 @@ from docutils.statemachine import StringList
 class DataTableDirective(Directive):
     """A Sphinx directive that transforms structured data into HTML/LaTeX tables.
 
-    Supports TOML, YAML, and JSON data provided either inline within the document
-    or via an external file path specified by the ':file:' option. Cell text is
-    parsed as Markdown/reST AST to preserve inline and block element formatting.
+    Accepts structured data in TOML, YAML, or JSON format. The data can be provided
+    either directly inside the directive's inline block or loaded from an external file
+    via the ':file:' option. Cell text is parsed as Markdown/reST AST so that inline
+    styles (like bold or code) and block elements (like lists) are rendered properly.
     """
 
     has_content = True
@@ -36,9 +37,14 @@ class DataTableDirective(Directive):
     def run(self) -> list[nodes.Node]:
         """Orchestrates the table rendering pipeline and returns docutils AST nodes.
 
+        Executes three steps:
+        1. Loads raw text from external file or inline content block.
+        2. Parses raw text into a list of row dictionaries.
+        3. Constructs and builds the docutils table AST node.
+
         Returns:
-            A list containing either a constructed docutils.nodes.table instance or
-            an error/warning message node if processing fails.
+            A single-element list containing the built docutils.nodes.table node,
+            or an error/warning message node if any step fails.
         """
         # 1. Load raw text content from external file or inline block
         raw_text, load_error = self._load_source_text()
@@ -90,6 +96,9 @@ class DataTableDirective(Directive):
     def _read_external_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
         """Reads raw text from external file, registering Sphinx build dependency.
 
+        Resolves relative file paths against the Sphinx document source directory and
+        notifies the Sphinx environment so that doc rebuilds trigger when file changes.
+
         Args:
             file_path: Relative path (from Sphinx doc directory) or absolute path.
 
@@ -123,6 +132,9 @@ class DataTableDirective(Directive):
         self, raw_text: str
     ) -> tuple[list[dict[str, Any]], nodes.Node | None]:
         """Detects format, parses raw text, and normalizes into row dictionaries.
+
+        Detects the data format (json, toml, yaml), parses raw_text using the matching
+        parser, and normalizes the parsed result into a flat list of row dictionaries.
 
         Args:
             raw_text: Raw string content of TOML, YAML, or JSON data.
@@ -184,6 +196,9 @@ class DataTableDirective(Directive):
     def _heuristic_format_detection(self, text: str) -> str:
         """Tries parsing as JSON, TOML, and YAML in order to infer data format.
 
+        Attempts JSON parsing first, then TOML parsing, then YAML parsing. If all
+        parsers fail, falls back to 'yaml' as the default format.
+
         Args:
             text: Raw data text string.
 
@@ -236,7 +251,7 @@ class DataTableDirective(Directive):
         """Normalizes parsed object into a flat list of row dictionaries.
 
         Accepts either a list of dictionaries, a root dictionary containing a list
-        of dictionaries, or a single row dictionary.
+        of dictionaries (e.g. {"items": [...]}), or a single row dictionary.
 
         Args:
             data: Parsed Python object resulting from JSON, TOML, or YAML parser.
@@ -263,6 +278,9 @@ class DataTableDirective(Directive):
         self, rows: list[dict[str, Any]]
     ) -> tuple[nodes.table, nodes.Node | None]:
         """Constructs docutils table node including headers and row cells.
+
+        Resolves column headers, creates table column specifications, and constructs
+        the thead (header row) and tbody (body rows) AST nodes.
 
         Args:
             rows: List of row dictionary objects.
@@ -320,6 +338,8 @@ class DataTableDirective(Directive):
     def _build_header_row_node(self, headers: list[str]) -> nodes.thead:
         """Builds docutils table header row node (thead).
 
+        Creates an entry node for each header name and parses its text as Markdown.
+
         Args:
             headers: List of column header names.
 
@@ -341,6 +361,10 @@ class DataTableDirective(Directive):
         self, headers: list[str], rows: list[dict[str, Any]]
     ) -> nodes.tbody:
         """Builds docutils table body rows node (tbody).
+
+        Iterates through row dictionaries, creates an entry node for each column,
+        retrieves cell values (defaulting to empty string if missing), and parses
+        Markdown.
 
         Args:
             headers: List of column header names.
@@ -373,6 +397,9 @@ class DataTableDirective(Directive):
     ) -> None:
         """Parses Markdown cell text into AST nodes and appends to entry_node.
 
+        Dedents cell text, parses it using nested_parse, applies target builder
+        line break transformations (LaTeX vs HTML), and attaches generated child nodes.
+
         Args:
             cell_text: Raw string content of a single table cell.
             entry_node: Target docutils.nodes.entry element to receive parsed nodes.
@@ -396,6 +423,9 @@ class DataTableDirective(Directive):
     def _is_latex_builder_active(self) -> bool:
         """Checks if current Sphinx build target is LaTeX.
 
+        Inspects the active Sphinx environment and builder name to check if LaTeX
+        output is being generated.
+
         Returns:
             True if the current builder is 'latex', otherwise False.
         """
@@ -408,6 +438,10 @@ class DataTableDirective(Directive):
         self, node: nodes.Node, is_latex: bool = False
     ) -> None:
         """Transforms in-cell line breaks for target builder (LaTeX vs HTML).
+
+        Sphinx's LaTeX translator converts line breaks into '\\\\', which breaks
+        table row structure in LaTeX. This method converts line breaks into '\\newline '
+        specifically for LaTeX builds, and '<br/>' for HTML builds.
 
         Args:
             node: The docutils AST node to process recursively.
