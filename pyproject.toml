@@ -4,14 +4,9 @@ version = "0.1.0"
 description = "Sphinx data-table extension for TOML, YAML, and JSON with Markdown cell parsing"
 readme = "README.md"
 license = "MIT"
-authors = [
-    { name = "jagarikokamukamu" }
-]
+authors = [{ name = "jagarikokamukamu" }]
 requires-python = ">=3.12"
-dependencies = [
-    "pyyaml>=6.0.3",
-    "sphinx>=8.0",
-]
+dependencies = ["pyyaml>=6.0.3", "sphinx>=8.0"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -22,11 +17,57 @@ where = ["src"]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
     "myst-parser>=5.1.0",
+    "pip-audit>=2.10.1",
+    "pyright>=1.1.411",
     "pytest-cov>=7.1.0",
     "pytest>=9.1.1",
+    "ruff>=0.16.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B110"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "D100", # Missing docstring in public module (files)
+    "D101", # Missing docstring in public class
+    "D102", # Missing docstring in public method
+    "D103", # Missing docstring in public function
+    "D201",
+    "D202", # missing-blank-line-before-summary
+    "D205", # missing-blank-line-after-summary
+    "D417", # undocumented-param
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
