@@ -86,8 +86,8 @@ class DataTableDirective(Directive):
 
         Returns:
             A tuple containing:
-                - The file text contents.
-                - An error node if the file cannot be read, otherwise None.
+                - The file text contents string.
+                - An error reporter node if the file cannot be read, otherwise None.
         """
         env = getattr(self.state.document.settings, "env", None)
         if env:
@@ -136,7 +136,7 @@ class DataTableDirective(Directive):
                   otherwise None.
         """
         data_format = self._detect_data_format(data_text)
-        parsed_data, parse_err_msg = self._parse_by_format(data_text, data_format)
+        parsed_data, parse_err_msg = self._parse_data_by_format(data_text, data_format)
 
         if parse_err_msg:
             error_node = self.state_machine.reporter.error(
@@ -144,7 +144,7 @@ class DataTableDirective(Directive):
             )
             return [], error_node
 
-        rows = self._normalize_parsed_data(parsed_data)
+        rows = self._normalize_data_to_rows(parsed_data)
         if not rows:
             warning_node = self.state_machine.reporter.warning(
                 "data-table: Data is empty or invalid format.",
@@ -181,9 +181,9 @@ class DataTableDirective(Directive):
             if ext in (".json",):
                 return "json"
 
-        return self._heuristic_format_detection(data_text)
+        return self._detect_format_from_content(data_text)
 
-    def _heuristic_format_detection(self, data_text: str) -> str:
+    def _detect_format_from_content(self, data_text: str) -> str:
         """Tries parsing as JSON, TOML, and YAML in order to infer data format.
 
         Attempts JSON parsing first, then TOML parsing, then YAML parsing. If all
@@ -209,7 +209,7 @@ class DataTableDirective(Directive):
 
         return "yaml"
 
-    def _parse_by_format(
+    def _parse_data_by_format(
         self, data_text: str, data_format: str
     ) -> tuple[Any, str | None]:
         """Parses data text using target format parser (json, toml, yaml).
@@ -237,7 +237,7 @@ class DataTableDirective(Directive):
         except Exception as err:
             return None, f"Failed to parse {data_format.upper()} data: {err}"
 
-    def _normalize_parsed_data(self, data: Any) -> list[dict[str, Any]]:
+    def _normalize_data_to_rows(self, data: Any) -> list[dict[str, Any]]:
         """Normalizes parsed object into a flat list of row dictionaries.
 
         Accepts either a list of dictionaries, a root dictionary containing a list
@@ -297,8 +297,8 @@ class DataTableDirective(Directive):
         for _ in headers:
             tgroup += nodes.colspec(colwidth=1)
 
-        tgroup += self._build_header_row_node(headers)
-        tgroup += self._build_body_row_nodes(headers, rows)
+        tgroup += self._build_thead_node(headers)
+        tgroup += self._build_tbody_node(headers, rows)
 
         return table_node, None
 
@@ -325,7 +325,7 @@ class DataTableDirective(Directive):
                     headers.append(key)
         return headers
 
-    def _build_header_row_node(self, headers: list[str]) -> nodes.thead:
+    def _build_thead_node(self, headers: list[str]) -> nodes.thead:
         """Builds docutils table header row node (thead).
 
         Creates an entry node for each header name and parses its text as Markdown.
@@ -347,7 +347,7 @@ class DataTableDirective(Directive):
 
         return thead
 
-    def _build_body_row_nodes(
+    def _build_tbody_node(
         self, headers: list[str], rows: list[dict[str, Any]]
     ) -> nodes.tbody:
         """Builds docutils table body rows node (tbody).
