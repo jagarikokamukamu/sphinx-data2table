@@ -1,0 +1,28 @@
+[project]
+name = "sphinx-data2table"
+version = "0.1.0"
+description = "Sphinx data-table extension for TOML, YAML, and JSON with Markdown cell parsing"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "sphinx>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "myst-parser>=5.1.0",
+    "pytest-cov>=7.1.0",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
