@@ -429,14 +429,47 @@ class DataTableDirective(Directive):
         """
         return self._builder_name == "latex"
 
+    def _create_break_node(self, is_latex: bool) -> nodes.raw:
+        """Creates a target-builder raw line break node ('\\newline ' or '<br/>').
+
+        Args:
+            is_latex: True if current builder is LaTeX.
+
+        Returns:
+            A docutils.nodes.raw element formatted for LaTeX or HTML.
+        """
+        if is_latex:
+            return nodes.raw("", r"\newline ", format="latex")
+        return nodes.raw("", "<br/>", format="html")
+
+    def _split_text_with_line_breaks(
+        self, text_node: nodes.Text, is_latex: bool
+    ) -> list[nodes.Node]:
+        """Splits a multiline text node into text fragments and line break nodes.
+
+        Args:
+            text_node: Text AST node containing line break characters ('\\n').
+            is_latex: True if current builder is LaTeX.
+
+        Returns:
+            A list of alternating Text nodes and raw line break nodes.
+        """
+        parts = str(text_node).split("\n")
+        new_nodes: list[nodes.Node] = []
+
+        for i, part in enumerate(parts):
+            clean_part = part.rstrip()
+            if clean_part:
+                new_nodes.append(nodes.Text(clean_part))
+            if i < len(parts) - 1:
+                new_nodes.append(self._create_break_node(is_latex))
+
+        return new_nodes
+
     def _transform_line_breaks(
         self, node: nodes.Node, is_latex: bool = False
     ) -> None:
         """Transforms in-cell line breaks for target builder (LaTeX vs HTML).
-
-        Sphinx's LaTeX translator converts line breaks into '\\\\', which breaks
-        table row structure in LaTeX. This method converts line breaks into '\\newline '
-        specifically for LaTeX builds, and '<br/>' for HTML builds.
 
         Args:
             node: The docutils AST node to process recursively.
@@ -453,27 +486,15 @@ class DataTableDirective(Directive):
             ):
                 modified = True
                 if is_latex:
-                    latex_break = nodes.raw("", r"\newline ", format="latex")
-                    latex_break.parent = node
-                    new_children.append(latex_break)
+                    break_node = self._create_break_node(is_latex=True)
+                    break_node.parent = node
+                    new_children.append(break_node)
             elif isinstance(child, nodes.Text) and "\n" in child:
                 modified = True
-                parts = str(child).split("\n")
-                for i, part in enumerate(parts):
-                    clean_part = part.rstrip()
-                    if clean_part:
-                        text_node = nodes.Text(clean_part)
-                        text_node.parent = node
-                        new_children.append(text_node)
-                    if i < len(parts) - 1:
-                        if is_latex:
-                            latex_break = nodes.raw("", r"\newline ", format="latex")
-                            latex_break.parent = node
-                            new_children.append(latex_break)
-                        else:
-                            html_break = nodes.raw("", "<br/>", format="html")
-                            html_break.parent = node
-                            new_children.append(html_break)
+                split_nodes = self._split_text_with_line_breaks(child, is_latex)
+                for sub_node in split_nodes:
+                    sub_node.parent = node
+                    new_children.append(sub_node)
             else:
                 self._transform_line_breaks(child, is_latex=is_latex)
                 child.parent = node
