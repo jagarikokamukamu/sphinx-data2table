@@ -475,8 +475,7 @@ class DataTableDirective(Directive):
             node: The docutils AST node to process recursively.
             is_latex: True if the current build target is LaTeX.
         """
-        new_children: list[nodes.Node] = []
-        modified = False
+        transformed_children: list[nodes.Node] = []
 
         for child in list(node.children):
             if (
@@ -484,21 +483,18 @@ class DataTableDirective(Directive):
                 and child.get("format") == "latex"
                 and child.astext().strip() in ("\\\\", r"\\")
             ):
-                modified = True
-                if is_latex:
-                    break_node = self._create_break_node(is_latex=True)
-                    break_node.parent = node
-                    new_children.append(break_node)
+                break_node = self._create_break_node(is_latex=True)
+                break_node.parent = node
+                transformed_children.append(break_node)
             elif isinstance(child, nodes.Text) and "\n" in child:
-                modified = True
                 split_nodes = self._split_text_with_line_breaks(child, is_latex)
                 for sub_node in split_nodes:
                     sub_node.parent = node
-                    new_children.append(sub_node)
+                    transformed_children.append(sub_node)
             else:
                 self._transform_line_breaks(child, is_latex=is_latex)
                 child.parent = node
-                new_children.append(child)
+                transformed_children.append(child)
 
-        if modified:
-            node.children = new_children
+        if node.children != transformed_children:
+            node.children = transformed_children
