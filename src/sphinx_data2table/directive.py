@@ -7,7 +7,7 @@ import json
 import os
 import textwrap
 import tomllib
-from typing import Any
+from typing import Any, TypeGuard
 
 import yaml
 from docutils import nodes
@@ -195,19 +195,31 @@ class DataTableDirective(Directive):
         Returns:
             Format string ('json', 'toml', or 'yaml'). Defaults to 'yaml' if ambiguous.
         """
-        with contextlib.suppress(Exception):
-            if isinstance(json.loads(data_text), (list, dict)):
-                return "json"
-
-        with contextlib.suppress(Exception):
-            if tomllib.loads(data_text):
-                return "toml"
-
-        with contextlib.suppress(Exception):
-            if isinstance(yaml.safe_load(data_text), (list, dict)):
-                return "yaml"
-
+        if self._is_valid_json(data_text):
+            return "json"
+        if self._is_valid_toml(data_text):
+            return "toml"
+        if self._is_valid_yaml(data_text):
+            return "yaml"
         return "yaml"
+
+    def _is_valid_json(self, text: str) -> bool:
+        """Checks if text is valid JSON list or dict."""
+        with contextlib.suppress(Exception):
+            return isinstance(json.loads(text), (list, dict))
+        return False
+
+    def _is_valid_toml(self, text: str) -> bool:
+        """Checks if text is valid non-empty TOML dict."""
+        with contextlib.suppress(Exception):
+            return bool(tomllib.loads(text))
+        return False
+
+    def _is_valid_yaml(self, text: str) -> bool:
+        """Checks if text is valid YAML list or dict."""
+        with contextlib.suppress(Exception):
+            return isinstance(yaml.safe_load(text), (list, dict))
+        return False
 
     def _parse_data_by_format(
         self, data_text: str, data_format: str
@@ -442,6 +454,18 @@ class DataTableDirective(Directive):
             return nodes.raw("", r"\newline ", format="latex")
         return nodes.raw("", "<br/>", format="html")
 
+    def _is_latex_line_break_raw_node(self, node: nodes.Node) -> bool:
+        """Checks if node is a raw LaTeX line break node ('\\\\')."""
+        return (
+            isinstance(node, nodes.raw)
+            and node.get("format") == "latex"
+            and node.astext().strip() in ("\\\\", r"\\")
+        )
+
+    def _is_multiline_text_node(self, node: nodes.Node) -> TypeGuard[nodes.Text]:
+        """TypeGuard checking if node is a Text node containing newline characters."""
+        return isinstance(node, nodes.Text) and "\n" in str(node)
+
     def _split_text_with_line_breaks(
         self, text_node: nodes.Text, is_latex: bool
     ) -> list[nodes.Node]:
@@ -478,15 +502,11 @@ class DataTableDirective(Directive):
         transformed_children: list[nodes.Node] = []
 
         for child in list(node.children):
-            if (
-                isinstance(child, nodes.raw)
-                and child.get("format") == "latex"
-                and child.astext().strip() in ("\\\\", r"\\")
-            ):
+            if self._is_latex_line_break_raw_node(child):
                 break_node = self._create_break_node(is_latex=True)
                 break_node.parent = node
                 transformed_children.append(break_node)
-            elif isinstance(child, nodes.Text) and "\n" in child:
+            elif self._is_multiline_text_node(child):
                 split_nodes = self._split_text_with_line_breaks(child, is_latex)
                 for sub_node in split_nodes:
                     sub_node.parent = node
