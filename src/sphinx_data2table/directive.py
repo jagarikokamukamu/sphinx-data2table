@@ -410,21 +410,24 @@ class DataTableDirective(Directive):
         for child in container.children:
             entry_node += child
 
+    @property
+    def _builder_name(self) -> str:
+        """Safely extracts the active Sphinx builder name, returning '' if unattached.
+
+        Accesses state.document.settings.env.app.builder.name while gracefully
+        suppressing AttributeError if running in standalone docutils or isolated tests.
+        """
+        with contextlib.suppress(AttributeError):
+            return self.state.document.settings.env.app.builder.name
+        return ""
+
     def _is_latex_builder_active(self) -> bool:
         """Checks if current Sphinx build target is LaTeX.
-
-        Sphinx attaches its BuildEnvironment object to docutils' settings.env.
-        This method safely inspects state.document.settings -> env -> app -> builder
-        to check if the active builder name is 'latex'. If running in standalone
-        docutils or isolated test contexts where env or app is absent, it returns False.
 
         Returns:
             True if the active Sphinx builder is 'latex', otherwise False.
         """
-        env = getattr(self.state.document.settings, "env", None)
-        if env and hasattr(env, "app") and hasattr(env.app, "builder"):
-            return getattr(env.app.builder, "name", "") == "latex"
-        return False
+        return self._builder_name == "latex"
 
     def _transform_line_breaks(
         self, node: nodes.Node, is_latex: bool = False
