@@ -70,9 +70,7 @@ class DataParser:
     def __init__(self, directive: Directive) -> None:
         self.directive = directive
 
-    def parse(
-        self, data_text: str
-    ) -> tuple[list[dict[str, Any]], nodes.Node | None]:
+    def parse(self, data_text: str) -> tuple[list[dict[str, Any]], nodes.Node | None]:
         """Detects data format, parses text, and normalizes into row dictionaries.
 
         Returns:
@@ -251,9 +249,7 @@ class TableAstBuilder:
 
         return tbody
 
-    def _render_cell_markdown(
-        self, cell_text: str, entry_node: nodes.entry
-    ) -> None:
+    def _render_cell_markdown(self, cell_text: str, entry_node: nodes.entry) -> None:
         """Parses cell Markdown text into AST nodes and attaches to entry_node."""
         dedented_text = textwrap.dedent(cell_text).strip()
         if not dedented_text:
@@ -316,9 +312,7 @@ class TableAstBuilder:
 
         return new_nodes
 
-    def _transform_line_breaks(
-        self, node: nodes.Node, is_latex: bool = False
-    ) -> None:
+    def _transform_line_breaks(self, node: nodes.Node, is_latex: bool = False) -> None:
         """Transforms in-cell line breaks recursively."""
         transformed_children: list[nodes.Node] = []
 
