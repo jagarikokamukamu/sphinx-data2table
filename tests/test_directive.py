@@ -10,7 +10,7 @@ from docutils.parsers.rst import Parser, directives
 from docutils.utils import new_document
 
 from sphinx_data2table import __version__, setup
-from sphinx_data2table.directive import DataTableDirective
+from sphinx_data2table.directive import DataTableDirective, TableAstBuilder
 
 
 def parse_rst_with_datatable(rst_content: str) -> nodes.document:
@@ -219,14 +219,13 @@ def test_empty_data_warning():
 
 def test_in_cell_newline_replacement():
     """Tests in-cell newline replacement logic for LaTeX and HTML builders."""
-    mock_directive = object.__new__(DataTableDirective)
+    mock_directive = MagicMock()
+    builder = TableAstBuilder(mock_directive)
 
     # Test HTML builder path (br tag inserted, no \newline leak)
     container_html = nodes.Element()
     container_html += nodes.Text("Line 1\nLine 2")
-    DataTableDirective._transform_line_breaks(
-        mock_directive, container_html, is_latex=False
-    )
+    builder._transform_line_breaks(container_html, is_latex=False)
     raw_html = list(container_html.findall(nodes.raw))
     assert len(raw_html) == 1
     assert raw_html[0].get("format") == "html"
@@ -236,9 +235,7 @@ def test_in_cell_newline_replacement():
     # Test LaTeX builder path (\newline inserted)
     container_latex = nodes.Element()
     container_latex += nodes.Text("Line 1\nLine 2")
-    DataTableDirective._transform_line_breaks(
-        mock_directive, container_latex, is_latex=True
-    )
+    builder._transform_line_breaks(container_latex, is_latex=True)
     raw_latex = list(container_latex.findall(nodes.raw))
     assert len(raw_latex) == 1
     assert raw_latex[0].get("format") == "latex"
