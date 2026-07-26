@@ -39,36 +39,14 @@ class DataTableDirective(Directive):
         Returns:
             A list containing constructed docutils table node or error nodes.
         """
-        env = (
-            self.state.document.settings.env
-            if hasattr(self.state.document.settings, "env")
-            else None
-        )
-
         # 1. Obtain raw data content
         file_path = self.options.get("file")
-        data_text = ""
-
         if file_path:
-            if env:
-                # Resolve relative path to sphinx doc source directory
-                rel_path, abs_path = env.relfn2path(file_path)
-                env.note_dependency(rel_path)
-            else:
-                abs_path = os.path.abspath(file_path)
-
-            try:
-                with open(abs_path, encoding="utf-8") as f:
-                    data_text = f.read()
-            except OSError as err:
-                return [
-                    self.state_machine.reporter.error(
-                        f"data-table: Could not read file '{file_path}': {err}",
-                        line=self.lineno,
-                    )
-                ]
+            data_text, load_error = self._load_data_text_from_file(file_path)
+            if load_error:
+                return [load_error]
         elif self.content:
-            data_text = textwrap.dedent("\n".join(self.content)).strip()
+            data_text = self._load_data_text_from_inline()
         else:
             return [
                 self.state_machine.reporter.error(
@@ -135,6 +113,35 @@ class DataTableDirective(Directive):
         # 5. Build Docutils Table Node
         table_node = self._build_table_node(headers, rows_data)
         return [table_node]
+
+    # =========================================================================
+    # Data Loading
+    # =========================================================================
+
+    def _load_data_text_from_file(
+        self, file_path: str
+    ) -> tuple[str, nodes.Node | None]:
+        """Reads data text from file path and notes dependency in Sphinx env."""
+        env = getattr(self.state.document.settings, "env", None)
+        if env:
+            rel_path, abs_path = env.relfn2path(file_path)
+            env.note_dependency(rel_path)
+        else:
+            abs_path = os.path.abspath(file_path)
+
+        try:
+            with open(abs_path, encoding="utf-8") as f:
+                return f.read(), None
+        except OSError as err:
+            error_node = self.state_machine.reporter.error(
+                f"data-table: Could not read file '{file_path}': {err}",
+                line=self.lineno,
+            )
+            return "", error_node
+
+    def _load_data_text_from_inline(self) -> str:
+        """Extracts dedented inline data text from directive content."""
+        return textwrap.dedent("\n".join(self.content)).strip()
 
     # =========================================================================
     # Format Parsing & Data Normalization
