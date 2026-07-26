@@ -1,6 +1,6 @@
 [project]
 name = "sphinx-data2table"
-version = "0.1.1"
+version = "0.1.2"
 description = "Sphinx data-table extension for TOML, YAML, and JSON with Markdown cell parsing"
 readme = "README.md"
 license = "MIT"
