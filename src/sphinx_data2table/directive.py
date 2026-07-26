@@ -136,6 +136,10 @@ class DataTableDirective(Directive):
         table_node = self._build_table_node(headers, rows_data)
         return [table_node]
 
+    # =========================================================================
+    # Format Parsing & Data Normalization
+    # =========================================================================
+
     def _guess_format(self, text: str) -> str:
         """Guesses whether data text content is JSON, TOML, or YAML.
 
@@ -212,6 +216,10 @@ class DataTableDirective(Directive):
             # Or a single row dict
             return [data]
         return []
+
+    # =========================================================================
+    # Table AST Construction
+    # =========================================================================
 
     def _build_table_node(
         self, headers: list[str], rows_data: list[dict[str, Any]]
