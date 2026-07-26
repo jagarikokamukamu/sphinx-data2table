@@ -15,6 +15,55 @@ from docutils.parsers.rst import Directive, directives
 from docutils.statemachine import StringList
 
 
+class DataLoader:
+    """Handles raw data text loading from external file or inline directive content."""
+
+    def __init__(self, directive: Directive) -> None:
+        self.directive = directive
+
+    def load(self) -> tuple[str, nodes.Node | None]:
+        """Loads data text prioritizing external file path option over inline content.
+
+        Returns:
+            A tuple containing raw data text and an optional error reporter node.
+        """
+        file_path = self.directive.options.get("file")
+        if file_path:
+            return self._load_from_file(file_path)
+
+        if self.directive.content:
+            return self._load_from_inline(), None
+
+        error_node = self.directive.state_machine.reporter.error(
+            "data-table: Neither content nor ':file:' option provided.",
+            line=self.directive.lineno,
+        )
+        return "", error_node
+
+    def _load_from_file(self, file_path: str) -> tuple[str, nodes.Node | None]:
+        """Reads raw text from external file path and registers Sphinx dependency."""
+        env = getattr(self.directive.state.document.settings, "env", None)
+        if env:
+            rel_path, abs_path = env.relfn2path(file_path)
+            env.note_dependency(rel_path)
+        else:
+            abs_path = os.path.abspath(file_path)
+
+        try:
+            with open(abs_path, encoding="utf-8") as f:
+                return f.read(), None
+        except OSError as err:
+            error_node = self.directive.state_machine.reporter.error(
+                f"data-table: Could not read file '{file_path}': {err}",
+                line=self.directive.lineno,
+            )
+            return "", error_node
+
+    def _load_from_inline(self) -> str:
+        """Extracts and dedents raw data text from inline directive block."""
+        return textwrap.dedent("\n".join(self.directive.content)).strip()
+
+
 class DataTableDirective(Directive):
     """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
 
@@ -40,22 +89,12 @@ class DataTableDirective(Directive):
             A list containing constructed docutils table node or error nodes.
         """
         # 1. Obtain raw data content
-        file_path = self.options.get("file")
-        if file_path:
-            data_text, load_error = self._load_data_text_from_file(file_path)
-            if load_error:
-                return [load_error]
-        elif self.content:
-            data_text = self._load_data_text_from_inline()
-        else:
-            return [
-                self.state_machine.reporter.error(
-                    "data-table: Neither content nor ':file:' option provided.",
-                    line=self.lineno,
-                )
-            ]
+        data_text, load_error = DataLoader(self).load()
+        if load_error:
+            return [load_error]
 
         # 2. Determine format (yaml / toml / json)
+        file_path = self.options.get("file")
         fmt = self.options.get("format", "auto").lower()
 
         if fmt == "auto":
@@ -113,35 +152,6 @@ class DataTableDirective(Directive):
         # 5. Build Docutils Table Node
         table_node = self._build_table_node(headers, rows_data)
         return [table_node]
-
-    # =========================================================================
-    # Data Loading
-    # =========================================================================
-
-    def _load_data_text_from_file(
-        self, file_path: str
-    ) -> tuple[str, nodes.Node | None]:
-        """Reads data text from file path and notes dependency in Sphinx env."""
-        env = getattr(self.state.document.settings, "env", None)
-        if env:
-            rel_path, abs_path = env.relfn2path(file_path)
-            env.note_dependency(rel_path)
-        else:
-            abs_path = os.path.abspath(file_path)
-
-        try:
-            with open(abs_path, encoding="utf-8") as f:
-                return f.read(), None
-        except OSError as err:
-            error_node = self.state_machine.reporter.error(
-                f"data-table: Could not read file '{file_path}': {err}",
-                line=self.lineno,
-            )
-            return "", error_node
-
-    def _load_data_text_from_inline(self) -> str:
-        """Extracts dedented inline data text from directive content."""
-        return textwrap.dedent("\n".join(self.content)).strip()
 
     # =========================================================================
     # Format Parsing & Data Normalization
