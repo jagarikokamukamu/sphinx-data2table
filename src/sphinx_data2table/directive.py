@@ -47,7 +47,7 @@ class DataTableDirective(Directive):
 
         # 1. Obtain raw data content
         file_path = self.options.get("file")
-        raw_text = ""
+        data_text = ""
 
         if file_path:
             if env:
@@ -59,7 +59,7 @@ class DataTableDirective(Directive):
 
             try:
                 with open(abs_path, encoding="utf-8") as f:
-                    raw_text = f.read()
+                    data_text = f.read()
             except OSError as err:
                 return [
                     self.state_machine.reporter.error(
@@ -68,7 +68,7 @@ class DataTableDirective(Directive):
                     )
                 ]
         elif self.content:
-            raw_text = textwrap.dedent("\n".join(self.content)).strip()
+            data_text = textwrap.dedent("\n".join(self.content)).strip()
         else:
             return [
                 self.state_machine.reporter.error(
@@ -90,10 +90,10 @@ class DataTableDirective(Directive):
                 elif ext in (".json",):
                     fmt = "json"
             if fmt == "auto":
-                fmt = self._guess_format(raw_text)
+                fmt = self._guess_format(data_text)
 
         # 3. Parse data
-        data, parse_err = self._parse_data(raw_text, fmt)
+        data, parse_err = self._parse_data(data_text, fmt)
         if parse_err:
             return [
                 self.state_machine.reporter.error(
