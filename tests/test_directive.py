@@ -219,13 +219,22 @@ def test_empty_data_warning():
 
 def test_in_cell_newline_replacement():
     """Tests that in-cell newlines are replaced with format-safe break nodes."""
-    rst = """
-.. data-table::
-   :format: yaml
+    directive = DataTableDirective(
+        name="data-table",
+        arguments=[],
+        options={},
+        content=[],
+        lineno=1,
+        content_offset=0,
+        block_text="",
+        state=MagicMock(),
+        state_machine=MagicMock(),
+    )
 
-   - col: "Line 1  \\nLine 2"
-"""
-    doc = parse_rst_with_datatable(rst)
-    raw_nodes = list(doc.findall(nodes.raw))
-    assert len(raw_nodes) >= 1
-    assert any(r.astext().strip() == r"\newline" for r in raw_nodes)
+    container_html = nodes.Element()
+    container_html += nodes.Text("Line 1\nLine 2")
+    directive._adjust_cell_line_breaks(container_html, is_latex=False)
+    raw_html = list(container_html.findall(nodes.raw))
+    assert len(raw_html) == 1
+    assert raw_html[0].get("format") == "html"
+    assert "<br/>" in raw_html[0].astext()
