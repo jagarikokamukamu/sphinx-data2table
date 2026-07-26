@@ -261,10 +261,28 @@ class TableAstBuilder:
         container = nodes.Element()
         self.directive.state.nested_parse(string_list, 0, container)
 
-        self._transform_line_breaks(container)
+        is_latex = self._is_latex_builder()
+        self._transform_line_breaks(container, is_latex=is_latex)
 
         for child in container.children:
             entry_node += child
+
+    @property
+    def _builder_name(self) -> str:
+        """Safely extracts Sphinx builder name."""
+        with contextlib.suppress(AttributeError):
+            return self.directive.state.document.settings.env.app.builder.name
+        return ""
+
+    def _is_latex_builder(self) -> bool:
+        """Checks if current Sphinx builder is LaTeX."""
+        return self._builder_name == "latex"
+
+    def _create_break_node(self, is_latex: bool) -> nodes.raw:
+        """Creates target builder raw line break node."""
+        if is_latex:
+            return nodes.raw("", r"\newline ", format="latex")
+        return nodes.raw("", "<br/>", format="html")
 
     def _is_latex_line_break_raw_node(self, node: nodes.Node) -> bool:
         """Checks if node is a raw LaTeX line break node."""
@@ -279,7 +297,7 @@ class TableAstBuilder:
         return isinstance(node, nodes.Text) and "\n" in str(node)
 
     def _split_text_with_line_breaks(
-        self, text_node: nodes.Text, parent_node: nodes.Node
+        self, text_node: nodes.Text, is_latex: bool
     ) -> list[nodes.Node]:
         """Splits multiline text node into text fragments and break nodes."""
         parts = str(text_node).split("\n")
@@ -288,32 +306,28 @@ class TableAstBuilder:
         for i, part in enumerate(parts):
             clean_part = part.rstrip()
             if clean_part:
-                sub_text = nodes.Text(clean_part)
-                sub_text.parent = parent_node
-                new_nodes.append(sub_text)
+                new_nodes.append(nodes.Text(clean_part))
             if i < len(parts) - 1:
-                latex_break = nodes.raw("", r"\newline ", format="latex")
-                html_break = nodes.raw("", "<br/>", format="html")
-                latex_break.parent = parent_node
-                html_break.parent = parent_node
-                new_nodes.extend([latex_break, html_break])
+                new_nodes.append(self._create_break_node(is_latex))
 
         return new_nodes
 
-    def _transform_line_breaks(self, node: nodes.Node) -> None:
+    def _transform_line_breaks(self, node: nodes.Node, is_latex: bool = False) -> None:
         """Transforms in-cell line breaks recursively."""
         transformed_children: list[nodes.Node] = []
 
         for child in list(node.children):
             if self._is_latex_line_break_raw_node(child):
-                latex_break = nodes.raw("", r"\newline ", format="latex")
-                latex_break.parent = node
-                transformed_children.append(latex_break)
+                break_node = self._create_break_node(is_latex=True)
+                break_node.parent = node
+                transformed_children.append(break_node)
             elif self._is_multiline_text_node(child):
-                split_nodes = self._split_text_with_line_breaks(child, parent_node=node)
-                transformed_children.extend(split_nodes)
+                split_nodes = self._split_text_with_line_breaks(child, is_latex)
+                for sub_node in split_nodes:
+                    sub_node.parent = node
+                    transformed_children.append(sub_node)
             else:
-                self._transform_line_breaks(child)
+                self._transform_line_breaks(child, is_latex=is_latex)
                 child.parent = node
                 transformed_children.append(child)
 
