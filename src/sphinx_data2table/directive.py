@@ -168,139 +168,102 @@ class DataParser:
         return []
 
 
-class DataTableDirective(Directive):
-    """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
+class TableAstBuilder:
+    """Handles docutils table AST node construction and Markdown cell rendering."""
 
-    This directive parses data text (inline or external) into structured row
-    dictionaries and constructs docutils table nodes. Each cell's text is parsed
-    via nested_parse to support Markdown inline and block elements.
-    """
+    def __init__(self, directive: Directive) -> None:
+        self.directive = directive
 
-    has_content = True
-    required_arguments = 0
-    optional_arguments = 0
-    final_argument_whitespace = False
-    option_spec = {
-        "file": directives.path,
-        "format": directives.unchanged,
-        "headers": directives.unchanged,
-    }
-
-    def run(self) -> list[nodes.Node]:
-        """Main execution method invoked by docutils when parsing directive.
+    def build(
+        self, rows: list[dict[str, Any]]
+    ) -> tuple[nodes.table, nodes.Node | None]:
+        """Constructs docutils table node containing column headers and row cells.
 
         Returns:
-            A list containing constructed docutils table node or error nodes.
+            A tuple containing constructed table node and an optional error node.
         """
-        # 1. Obtain raw data content
-        data_text, load_error = DataLoader(self).load()
-        if load_error:
-            return [load_error]
-
-        # 2. Parse data into row dictionaries
-        rows, parse_error = DataParser(self).parse(data_text)
-        if parse_error:
-            return [parse_error]
-
-        # 3. Determine Headers
-        headers_opt = self.options.get("headers")
-        if headers_opt:
-            headers = [h.strip() for h in headers_opt.split(",") if h.strip()]
-        else:
-            # Collect all unique keys across rows while preserving order
-            headers = []
-            for row in rows:
-                if isinstance(row, dict):
-                    for k in row.keys():
-                        if k not in headers:
-                            headers.append(k)
-
+        headers = self._resolve_headers(rows)
         if not headers:
-            return [
-                self.state_machine.reporter.error(
-                    "data-table: Could not determine headers from data.",
-                    line=self.lineno,
-                )
-            ]
+            error_node = self.directive.state_machine.reporter.error(
+                "data-table: Could not determine headers from data.",
+                line=self.directive.lineno,
+            )
+            return nodes.table(), error_node
 
-        # 4. Build Docutils Table Node
-        table_node = self._build_table_node(headers, rows)
-        return [table_node]
+        table_node = nodes.table()
+        table_node["classes"] += ["datatable"]
 
-    # =========================================================================
-    # Table AST Construction
-    # =========================================================================
-
-    def _build_table_node(
-        self, headers: list[str], rows_data: list[dict[str, Any]]
-    ) -> nodes.table:
-        """Constructs docutils table nodes and parses Markdown for each cell.
-
-        Args:
-            headers: A list of column header names.
-            rows_data: A list of row dictionary objects containing cell contents.
-
-        Returns:
-            A docutils.nodes.table instance containing header and body rows.
-        """
-        table = nodes.table()
-        table["classes"] += ["datatable"]
         tgroup = nodes.tgroup(cols=len(headers))
-        table += tgroup
+        table_node += tgroup
 
         for _ in headers:
             tgroup += nodes.colspec(colwidth=1)
 
-        # Header Row
+        tgroup += self._build_thead(headers)
+        tgroup += self._build_tbody(headers, rows)
+
+        return table_node, None
+
+    def _resolve_headers(self, rows: list[dict[str, Any]]) -> list[str]:
+        """Resolves headers from explicit option or row dictionary keys."""
+        headers_option = self.directive.options.get("headers")
+        if headers_option:
+            return [h.strip() for h in headers_option.split(",") if h.strip()]
+
+        headers: list[str] = []
+        for row in rows:
+            for key in row.keys():
+                if key not in headers:
+                    headers.append(key)
+        return headers
+
+    def _build_thead(self, headers: list[str]) -> nodes.thead:
+        """Constructs docutils table header row (thead)."""
         thead = nodes.thead()
-        tgroup += thead
         header_row = nodes.row()
         thead += header_row
 
-        for header_text in headers:
-            entry = nodes.entry()
-            self._parse_cell_markdown(str(header_text), entry)
-            header_row += entry
+        for header_name in headers:
+            entry_node = nodes.entry()
+            self._render_cell_markdown(str(header_name), entry_node)
+            header_row += entry_node
 
-        # Body Rows
+        return thead
+
+    def _build_tbody(
+        self, headers: list[str], rows: list[dict[str, Any]]
+    ) -> nodes.tbody:
+        """Constructs docutils table body rows (tbody)."""
         tbody = nodes.tbody()
-        tgroup += tbody
 
-        for row_dict in rows_data:
+        for row_dict in rows:
             row_node = nodes.row()
             tbody += row_node
-            for h in headers:
-                entry = nodes.entry()
-                cell_value = row_dict.get(h, "")
+            for col_name in headers:
+                entry_node = nodes.entry()
+                cell_value = row_dict.get(col_name, "")
                 if cell_value is None:
                     cell_value = ""
-                self._parse_cell_markdown(str(cell_value), entry)
-                row_node += entry
+                self._render_cell_markdown(str(cell_value), entry_node)
+                row_node += entry_node
 
-        return table
+        return tbody
 
-    def _parse_cell_markdown(self, content_str: str, entry_node: nodes.entry) -> None:
-        """Parses cell string as Markdown/reST AST into docutils nodes in entry_node.
-
-        Args:
-            content_str: The raw text content of the table cell.
-            entry_node: Target docutils.nodes.entry node to append child nodes into.
-        """
-        dedented_str = textwrap.dedent(content_str).strip()
-        if not dedented_str:
+    def _render_cell_markdown(self, cell_text: str, entry_node: nodes.entry) -> None:
+        """Parses cell Markdown text into AST nodes and attaches to entry_node."""
+        dedented_text = textwrap.dedent(cell_text).strip()
+        if not dedented_text:
             return
 
-        lines = dedented_str.splitlines()
+        lines = dedented_text.splitlines()
         string_list = StringList(lines, source="datatable_cell")
 
-        # Create temporary container node to hold nested parsed nodes
         container = nodes.Element()
-        self.state.nested_parse(string_list, 0, container)
+        self.directive.state.nested_parse(string_list, 0, container)
 
-        is_latex_builder = self._is_latex_builder_active()
-        self._adjust_cell_line_breaks(container, is_latex=is_latex_builder)
+        is_latex = self._is_latex_builder()
+        self._transform_line_breaks(container, is_latex=is_latex)
 
-        # Transfer children from container to entry_node
         for child in container.children:
             entry_node += child
 
@@ -308,11 +271,11 @@ class DataTableDirective(Directive):
     def _builder_name(self) -> str:
         """Safely extracts Sphinx builder name."""
         with contextlib.suppress(AttributeError):
-            return self.state.document.settings.env.app.builder.name
+            return self.directive.state.document.settings.env.app.builder.name
         return ""
 
-    def _is_latex_builder_active(self) -> bool:
-        """Checks if current Sphinx build target is LaTeX."""
+    def _is_latex_builder(self) -> bool:
+        """Checks if current Sphinx builder is LaTeX."""
         return self._builder_name == "latex"
 
     def _create_break_node(self, is_latex: bool) -> nodes.raw:
@@ -349,10 +312,8 @@ class DataTableDirective(Directive):
 
         return new_nodes
 
-    def _adjust_cell_line_breaks(
-        self, node: nodes.Node, is_latex: bool = False
-    ) -> None:
-        """Adjusts in-cell line breaks for LaTeX vs HTML builders."""
+    def _transform_line_breaks(self, node: nodes.Node, is_latex: bool = False) -> None:
+        """Transforms in-cell line breaks recursively."""
         transformed_children: list[nodes.Node] = []
 
         for child in list(node.children):
@@ -366,9 +327,48 @@ class DataTableDirective(Directive):
                     sub_node.parent = node
                     transformed_children.append(sub_node)
             else:
-                self._adjust_cell_line_breaks(child, is_latex=is_latex)
+                self._transform_line_breaks(child, is_latex=is_latex)
                 child.parent = node
                 transformed_children.append(child)
 
         if node.children != transformed_children:
             node.children = transformed_children
+
+
+class DataTableDirective(Directive):
+    """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
+
+    This directive parses data text (inline or external) into structured row
+    dictionaries and constructs docutils table nodes. Each cell's text is parsed
+    via nested_parse to support Markdown inline and block elements.
+    """
+
+    has_content = True
+    required_arguments = 0
+    optional_arguments = 0
+    final_argument_whitespace = False
+    option_spec = {
+        "file": directives.path,
+        "format": directives.unchanged,
+        "headers": directives.unchanged,
+    }
+
+    def run(self) -> list[nodes.Node]:
+        """Main execution method invoked by docutils when parsing directive.
+
+        Returns:
+            A list containing constructed docutils table node or error nodes.
+        """
+        data_text, load_error = DataLoader(self).load()
+        if load_error:
+            return [load_error]
+
+        rows, parse_error = DataParser(self).parse(data_text)
+        if parse_error:
+            return [parse_error]
+
+        table_node, build_error = TableAstBuilder(self).build(rows)
+        if build_error:
+            return [build_error]
+
+        return [table_node]
