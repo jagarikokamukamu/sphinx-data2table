@@ -7,7 +7,7 @@ import json
 import os
 import textwrap
 import tomllib
-from typing import Any
+from typing import Any, TypeGuard
 
 import yaml
 from docutils import nodes
@@ -304,48 +304,56 @@ class DataTableDirective(Directive):
         for child in container.children:
             entry_node += child
 
+    def _is_latex_line_break_raw_node(self, node: nodes.Node) -> bool:
+        """Checks if node is a raw LaTeX line break node."""
+        return (
+            isinstance(node, nodes.raw)
+            and node.get("format") == "latex"
+            and node.astext().strip() in ("\\\\", r"\\")
+        )
+
+    def _is_multiline_text_node(self, node: nodes.Node) -> TypeGuard[nodes.Text]:
+        """TypeGuard checking if node is a Text node containing newlines."""
+        return isinstance(node, nodes.Text) and "\n" in str(node)
+
+    def _split_text_with_line_breaks(
+        self, text_node: nodes.Text, parent_node: nodes.Node
+    ) -> list[nodes.Node]:
+        """Splits multiline text node into text fragments and break nodes."""
+        parts = str(text_node).split("\n")
+        new_nodes: list[nodes.Node] = []
+
+        for i, part in enumerate(parts):
+            clean_part = part.rstrip()
+            if clean_part:
+                sub_text = nodes.Text(clean_part)
+                sub_text.parent = parent_node
+                new_nodes.append(sub_text)
+            if i < len(parts) - 1:
+                latex_break = nodes.raw("", r"\newline ", format="latex")
+                html_break = nodes.raw("", "<br/>", format="html")
+                latex_break.parent = parent_node
+                html_break.parent = parent_node
+                new_nodes.extend([latex_break, html_break])
+
+        return new_nodes
+
     def _replace_cell_newlines(self, node: nodes.Node) -> None:
-        """Recursively replaces in-cell line breaks with raw break nodes.
-
-        WORKAROUND:
-            Sphinx's default LaTeXTranslator turns in-cell line break nodes into
-            '\\\\', which LaTeX interprets as a table row separator.
-
-        Args:
-            node: The docutils AST node to process recursively.
-        """
-        new_children: list[nodes.Node] = []
-        modified = False
+        """Recursively replaces in-cell line breaks with raw break nodes."""
+        transformed_children: list[nodes.Node] = []
 
         for child in list(node.children):
-            if (
-                isinstance(child, nodes.raw)
-                and child.get("format") == "latex"
-                and child.astext().strip() in ("\\\\", r"\\")
-            ):
-                modified = True
+            if self._is_latex_line_break_raw_node(child):
                 latex_break = nodes.raw("", r"\newline ", format="latex")
                 latex_break.parent = node
-                new_children.append(latex_break)
-            elif isinstance(child, nodes.Text) and "\n" in child:
-                modified = True
-                parts = str(child).split("\n")
-                for i, part in enumerate(parts):
-                    clean_part = part.rstrip()
-                    if clean_part:
-                        t = nodes.Text(clean_part)
-                        t.parent = node
-                        new_children.append(t)
-                    if i < len(parts) - 1:
-                        latex_break = nodes.raw("", r"\newline ", format="latex")
-                        html_break = nodes.raw("", "<br/>", format="html")
-                        latex_break.parent = node
-                        html_break.parent = node
-                        new_children.extend([latex_break, html_break])
+                transformed_children.append(latex_break)
+            elif self._is_multiline_text_node(child):
+                split_nodes = self._split_text_with_line_breaks(child, parent_node=node)
+                transformed_children.extend(split_nodes)
             else:
                 self._replace_cell_newlines(child)
                 child.parent = node
-                new_children.append(child)
+                transformed_children.append(child)
 
-        if modified:
-            node.children = new_children
+        if node.children != transformed_children:
+            node.children = transformed_children
