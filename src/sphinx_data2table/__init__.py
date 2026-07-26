@@ -12,7 +12,7 @@ from sphinx_data2table.directive import DataTableDirective
 if TYPE_CHECKING:
     from sphinx.application import Sphinx
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 
 def setup(app: Sphinx) -> dict[str, Any]:
