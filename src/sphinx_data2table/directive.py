@@ -64,6 +64,110 @@ class DataLoader:
         return textwrap.dedent("\n".join(self.directive.content)).strip()
 
 
+class DataParser:
+    """Handles format detection, parsing, and data normalization into row dicts."""
+
+    def __init__(self, directive: Directive) -> None:
+        self.directive = directive
+
+    def parse(self, data_text: str) -> tuple[list[dict[str, Any]], nodes.Node | None]:
+        """Detects data format, parses text, and normalizes into row dictionaries.
+
+        Returns:
+            A tuple containing a list of row dicts and an optional error/warning node.
+        """
+        data_format = self._detect_format(data_text)
+        parsed_data, parse_err_msg = self._parse_by_format(data_text, data_format)
+
+        if parse_err_msg:
+            error_node = self.directive.state_machine.reporter.error(
+                parse_err_msg, line=self.directive.lineno
+            )
+            return [], error_node
+
+        rows = self._normalize_to_rows(parsed_data)
+        if not rows:
+            warning_node = self.directive.state_machine.reporter.warning(
+                "data-table: Data is empty or invalid format.",
+                line=self.directive.lineno,
+            )
+            return [], warning_node
+
+        return rows, None
+
+    def _detect_format(self, data_text: str) -> str:
+        """Determines format via option specifier, file extension, or heuristic."""
+        specified_format = self.directive.options.get("format", "auto").lower()
+        if specified_format != "auto":
+            return specified_format
+
+        file_path = self.directive.options.get("file")
+        if file_path:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in (".toml",):
+                return "toml"
+            if ext in (".yaml", ".yml"):
+                return "yaml"
+            if ext in (".json",):
+                return "json"
+
+        return self._detect_format_from_content(data_text)
+
+    def _detect_format_from_content(self, data_text: str) -> str:
+        """Heuristically checks if text is valid JSON, TOML, or YAML."""
+        if self._is_valid_json(data_text):
+            return "json"
+        if self._is_valid_toml(data_text):
+            return "toml"
+        if self._is_valid_yaml(data_text):
+            return "yaml"
+        return "yaml"
+
+    def _is_valid_json(self, text: str) -> bool:
+        with contextlib.suppress(Exception):
+            return isinstance(json.loads(text), (list, dict))
+        return False
+
+    def _is_valid_toml(self, text: str) -> bool:
+        with contextlib.suppress(Exception):
+            return bool(tomllib.loads(text))
+        return False
+
+    def _is_valid_yaml(self, text: str) -> bool:
+        with contextlib.suppress(Exception):
+            return isinstance(yaml.safe_load(text), (list, dict))
+        return False
+
+    def _parse_by_format(
+        self, data_text: str, data_format: str
+    ) -> tuple[Any, str | None]:
+        try:
+            if data_format == "json":
+                return json.loads(data_text), None
+            if data_format == "toml":
+                return tomllib.loads(data_text), None
+            if data_format == "yaml":
+                return yaml.safe_load(data_text), None
+            return (
+                None,
+                f"Unsupported format '{data_format}'. Use 'json', 'yaml', or 'toml'.",
+            )
+        except Exception as err:
+            return None, f"Failed to parse {data_format.upper()} data: {err}"
+
+    def _normalize_to_rows(self, data: Any) -> list[dict[str, Any]]:
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+
+        if isinstance(data, dict):
+            for val in data.values():
+                if isinstance(val, list) and all(isinstance(x, dict) for x in val):
+                    return val
+            return [data]
+
+        return []
+
+
 class DataTableDirective(Directive):
     """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
 
@@ -93,49 +197,19 @@ class DataTableDirective(Directive):
         if load_error:
             return [load_error]
 
-        # 2. Determine format (yaml / toml / json)
-        file_path = self.options.get("file")
-        fmt = self.options.get("format", "auto").lower()
+        # 2. Parse data into row dictionaries
+        rows, parse_error = DataParser(self).parse(data_text)
+        if parse_error:
+            return [parse_error]
 
-        if fmt == "auto":
-            if file_path:
-                ext = os.path.splitext(file_path)[1].lower()
-                if ext in (".toml",):
-                    fmt = "toml"
-                elif ext in (".yaml", ".yml"):
-                    fmt = "yaml"
-                elif ext in (".json",):
-                    fmt = "json"
-            if fmt == "auto":
-                fmt = self._guess_format(data_text)
-
-        # 3. Parse data
-        data, parse_err = self._parse_data(data_text, fmt)
-        if parse_err:
-            return [
-                self.state_machine.reporter.error(
-                    f"data-table: Failed to parse {fmt.upper()} data: {parse_err}",
-                    line=self.lineno,
-                )
-            ]
-
-        rows_data = self._normalize_rows(data)
-        if not rows_data:
-            return [
-                self.state_machine.reporter.warning(
-                    "data-table: Data is empty or invalid format.",
-                    line=self.lineno,
-                )
-            ]
-
-        # 4. Determine Headers
+        # 3. Determine Headers
         headers_opt = self.options.get("headers")
         if headers_opt:
             headers = [h.strip() for h in headers_opt.split(",") if h.strip()]
         else:
             # Collect all unique keys across rows while preserving order
             headers = []
-            for row in rows_data:
+            for row in rows:
                 if isinstance(row, dict):
                     for k in row.keys():
                         if k not in headers:
@@ -149,90 +223,9 @@ class DataTableDirective(Directive):
                 )
             ]
 
-        # 5. Build Docutils Table Node
-        table_node = self._build_table_node(headers, rows_data)
+        # 4. Build Docutils Table Node
+        table_node = self._build_table_node(headers, rows)
         return [table_node]
-
-    # =========================================================================
-    # Format Parsing & Data Normalization
-    # =========================================================================
-
-    def _guess_format(self, text: str) -> str:
-        """Guesses whether data text content is JSON, TOML, or YAML.
-
-        Args:
-            text: The data text content.
-
-        Returns:
-            The string 'json', 'toml', or 'yaml'. Defaults to 'yaml' if ambiguous.
-        """
-        # Try JSON first
-        with contextlib.suppress(Exception):
-            parsed_json = json.loads(text)
-            if isinstance(parsed_json, (list, dict)):
-                return "json"
-
-        # Try TOML
-        with contextlib.suppress(Exception):
-            parsed_toml = tomllib.loads(text)
-            if isinstance(parsed_toml, dict) and parsed_toml:
-                return "toml"
-
-        # Try YAML
-        with contextlib.suppress(Exception):
-            parsed_yaml = yaml.safe_load(text)
-            if isinstance(parsed_yaml, (list, dict)):
-                return "yaml"
-
-        return "yaml"
-
-    def _parse_data(self, text: str, fmt: str) -> tuple[Any, str | None]:
-        """Parses data text using the specified format parser.
-
-        Args:
-            text: Data text string.
-            fmt: Format string ('json', 'toml', or 'yaml').
-
-        Returns:
-            A tuple containing (parsed_object, error_message_or_None).
-        """
-        if fmt == "json":
-            try:
-                return json.loads(text), None
-            except Exception as e:
-                return None, str(e)
-        elif fmt == "toml":
-            try:
-                return tomllib.loads(text), None
-            except Exception as e:
-                return None, str(e)
-        elif fmt == "yaml":
-            try:
-                return yaml.safe_load(text), None
-            except Exception as e:
-                return None, str(e)
-        else:
-            return None, f"Unsupported format '{fmt}'. Use 'json', 'yaml', or 'toml'."
-
-    def _normalize_rows(self, data: Any) -> list[dict[str, Any]]:
-        """Normalizes parsed data into a list of row dictionaries.
-
-        Args:
-            data: Parsed data resulting from JSON, TOML, or YAML parser.
-
-        Returns:
-            A list of dictionary objects representing table rows.
-        """
-        if isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
-        elif isinstance(data, dict):
-            # If root is a dict containing a list of dicts (e.g. {"items": [...]})
-            for val in data.values():
-                if isinstance(val, list) and all(isinstance(x, dict) for x in val):
-                    return val
-            # Or a single row dict
-            return [data]
-        return []
 
     # =========================================================================
     # Table AST Construction
