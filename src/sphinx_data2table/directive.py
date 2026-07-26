@@ -266,6 +266,23 @@ class TableAstBuilder:
         for child in container.children:
             entry_node += child
 
+    @property
+    def _builder_name(self) -> str:
+        """Safely extracts Sphinx builder name."""
+        with contextlib.suppress(AttributeError):
+            return self.directive.state.document.settings.env.app.builder.name
+        return ""
+
+    def _is_latex_builder(self) -> bool:
+        """Checks if current Sphinx builder is LaTeX."""
+        return self._builder_name == "latex"
+
+    def _create_break_node(self, is_latex: bool) -> nodes.raw:
+        """Creates target builder raw line break node."""
+        if is_latex:
+            return nodes.raw("", r"\newline ", format="latex")
+        return nodes.raw("", "<br/>", format="html")
+
     def _is_latex_line_break_raw_node(self, node: nodes.Node) -> bool:
         """Checks if node is a raw LaTeX line break node."""
         return (
