@@ -18,9 +18,9 @@ from docutils.statemachine import StringList
 class DataTableDirective(Directive):
     """Sphinx/Docutils directive to render TOML, YAML, or JSON data as tables.
 
-    This directive parses raw inline TOML/YAML/JSON text or external data files
-    into structured data and constructs docutils table nodes. Each cell's text is
-    parsed via nested_parse to support Markdown inline and block elements.
+    This directive parses data text (inline or external) into structured row
+    dictionaries and constructs docutils table nodes. Each cell's text is parsed
+    via nested_parse to support Markdown inline and block elements.
     """
 
     has_content = True
@@ -137,10 +137,10 @@ class DataTableDirective(Directive):
         return [table_node]
 
     def _guess_format(self, text: str) -> str:
-        """Guesses whether raw text content is JSON, TOML, or YAML.
+        """Guesses whether data text content is JSON, TOML, or YAML.
 
         Args:
-            text: The raw string content of the data.
+            text: The data text content.
 
         Returns:
             The string 'json', 'toml', or 'yaml'. Defaults to 'yaml' if ambiguous.
@@ -166,10 +166,10 @@ class DataTableDirective(Directive):
         return "yaml"
 
     def _parse_data(self, text: str, fmt: str) -> tuple[Any, str | None]:
-        """Parses raw text data using the specified format parser.
+        """Parses data text using the specified format parser.
 
         Args:
-            text: Raw data text string.
+            text: Data text string.
             fmt: Format string ('json', 'toml', or 'yaml').
 
         Returns:
