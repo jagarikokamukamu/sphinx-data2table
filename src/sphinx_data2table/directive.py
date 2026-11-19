@@ -5,9 +5,14 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import textwrap
-import tomllib
 from typing import Any, TypeGuard
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 import yaml
 from docutils import nodes

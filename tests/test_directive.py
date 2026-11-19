@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import importlib
+import sys
+from unittest.mock import MagicMock, patch
 
 from docutils import nodes
 from docutils.frontend import get_default_settings
@@ -240,3 +242,19 @@ def test_in_cell_newline_replacement():
     assert len(raw_latex) == 1
     assert raw_latex[0].get("format") == "latex"
     assert r"\newline" in raw_latex[0].astext()
+
+
+def test_tomli_fallback_on_python_310():
+    """Tests that directive falls back to tomli when Python < 3.11."""
+    import sphinx_data2table.directive as directive_mod
+
+    fake_tomli = MagicMock()
+    try:
+        with (
+            patch.object(sys, "version_info", (3, 10, 0)),
+            patch.dict(sys.modules, {"tomli": fake_tomli}),
+        ):
+            importlib.reload(directive_mod)
+            assert directive_mod.tomllib is fake_tomli
+    finally:
+        importlib.reload(directive_mod)
