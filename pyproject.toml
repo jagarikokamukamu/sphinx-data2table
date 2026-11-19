@@ -52,7 +52,7 @@ skips = ["B110"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py313"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -85,5 +85,5 @@ indent-style = "space"
 convention = "google"
 
 [tool.pyright]
-pythonVersion = "3.13"
+pythonVersion = "3.10"
 typeCheckingMode = "basic"
